@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Date widget fixture</title>
+    <style>
+      body { font: 14px/1.6 system-ui, sans-serif; margin: 24px; max-width: 720px; }
+      fieldset { border: 1px solid #ccc; margin-bottom: 18px; padding: 12px 16px; }
+      legend { font-weight: 600; }
+      label { display: block; margin-top: 10px; font-weight: 600; }
+      input, textarea { padding: 6px 8px; font: inherit; }
+      .hint { color: #666; font-size: 12px; }
+      code { background: #f2f2f2; padding: 1px 4px; }
+    </style>
+  </head>
+  <body>
+    <h1>Date widget fixture</h1>
+    <p>
+      The shapes a "MM/YYYY" box actually takes. Scan, then Fill, and every
+      From/To below should end up populated from stored work history.
+    </p>
+
+    <form>
+      <fieldset>
+        <legend>Work Experience 1 — native month input</legend>
+        <label for="t1">Job Title</label>
+        <input id="t1" name="title" type="text" />
+        <label for="c1">Company</label>
+        <input id="c1" name="company" type="text" />
+        <label for="cur1">I currently work here</label>
+        <input id="cur1" name="current" type="checkbox" />
+        <label for="f1">From</label>
+        <input id="f1" name="from" type="month" />
+        <label for="e1">To</label>
+        <input id="e1" name="to" type="month" />
+        <label for="d1">Role Description</label>
+        <textarea id="d1" name="description" rows="3"></textarea>
+      </fieldset>
+
+      <fieldset>
+        <legend>Work Experience 2 — readonly masked text (picker-only)</legend>
+        <label for="t2">Job Title</label>
+        <input id="t2" name="title2" type="text" />
+        <label for="c2">Company</label>
+        <input id="c2" name="company2" type="text" />
+        <label for="f2">From</label>
+        <input id="f2" name="from2" type="text" placeholder="MM/YYYY" readonly />
+        <label for="e2">To</label>
+        <input id="e2" name="to2" type="text" placeholder="MM/YYYY" readonly />
+      </fieldset>
+
+      <fieldset>
+        <legend>Work Experience 3 — mask published elsewhere</legend>
+        <label for="t3">Job Title</label>
+        <input id="t3" name="title3" type="text" />
+        <label for="c3">Company</label>
+        <input id="c3" name="company3" type="text" />
+
+        <label for="f3">From</label>
+        <input id="f3" name="from3" type="text" title="Enter as MM/YYYY" />
+        <span class="hint">mask lives in <code>title</code></span>
+
+        <label for="e3">To</label>
+        <input id="e3" name="to3" type="text" aria-describedby="e3hint" />
+        <span class="hint" id="e3hint">Format: DD/MM/YYYY</span>
+
+        <label for="g3">Graduated</label>
+        <input id="g3" name="grad3" type="text" data-date-format="YYYY/MM" />
+        <span class="hint">mask lives in <code>data-date-format</code></span>
+      </fieldset>
+    </form>
+
+    <script>
+      // Prove the readonly boxes are genuinely picker-only: typing does nothing,
+      // which is the state the filler has to work around.
+      document.querySelectorAll("input[readonly]").forEach((el) => {
+        el.addEventListener("keydown", (e) => e.preventDefault());
+      });
+    </script>
+  </body>
+</html>

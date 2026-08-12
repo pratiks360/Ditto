@@ -1,0 +1,47 @@
+# Job Knowledge Service.
+#
+#   podman build -t jobkb -f Containerfile .
+#   podman run -d --name jobkb -p 127.0.0.1:8765:8765 ^
+#     -v %USERPROFILE%\.jobkb:/data:Z ^
+#     -e OPENROUTER_API_KEY=%OPENROUTER_API_KEY% jobkb
+#
+# Or just: podman-compose up -d   (see compose.yaml)
+
+FROM python:3.13-slim
+
+# Embeddings are downloaded at first run and cached here. Baking the cache into
+# the image keeps startup offline and fast, and survives container recreation
+# without a second volume.
+ENV HF_HOME=/opt/hf \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    JOBKB_ROOT=/data \
+    JOBKB_PORT=8765 \
+    # Inside a container the service must listen on every interface — 127.0.0.1
+    # would only be reachable from within the container itself. The published
+    # port is still bound to the host's loopback, so nothing on the network can
+    # reach it.
+    JOBKB_HOST=0.0.0.0
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir model2vec numpy
+
+# Pre-download the embedding model so the first fill is not the one that waits.
+RUN python -c "from model2vec import StaticModel; StaticModel.from_pretrained('minishlab/potion-base-8M')"
+
+COPY jobkb/ ./jobkb/
+COPY run.py import_resume.py ./
+
+# The knowledge base is a bind mount, never image content: it is your data and
+# it must outlive every rebuild.
+VOLUME ["/data"]
+
+EXPOSE 8765
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8765/health', timeout=4).status==200 else 1)"
+
+CMD ["python", "run.py"]

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Job Application Learner</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <strong>Job Application Learner</strong>
+      <span class="pill" id="service-pill" title="Knowledge service">checking…</span>
+    </header>
+
+    <nav class="tabs">
+      <button class="tab active" data-view="scan">Form</button>
+      <button class="tab" data-view="kb">Knowledge Base</button>
+    </nav>
+
+    <!-- ------------------------------------------------------- scan view -->
+    <section id="view-scan" class="view">
+      <div class="actions">
+        <button id="btn-autofill" class="primary">Fill this form</button>
+        <button id="btn-scan">Scan</button>
+        <button id="btn-save" disabled>Save answers</button>
+        <button id="btn-fill" disabled>Fill (review first)</button>
+      </div>
+      <button id="btn-pending" class="hidden">Review captured answers</button>
+      <div id="scan-meta" class="meta"></div>
+      <div id="scan-list" class="list"></div>
+      <p class="footnote">
+        <strong>Fill this form</strong> (or <kbd>Ctrl+Shift+F</kbd> on the page)
+        writes everything the knowledge base can answer and asks you, in the
+        page, about the rest. Submitting a form teaches it. It never submits
+        anything for you.
+      </p>
+    </section>
+
+    <!-- ----------------------------------------------------- review view -->
+    <section id="view-review" class="view hidden">
+      <div class="actions">
+        <button id="btn-confirm" class="primary">Confirm &amp; save</button>
+        <button id="btn-cancel">Back</button>
+      </div>
+      <div id="review-meta" class="meta"></div>
+      <div id="review-list" class="list"></div>
+    </section>
+
+    <!-- ------------------------------------------------------- fill view -->
+    <section id="view-fill" class="view hidden">
+      <div class="actions">
+        <button id="btn-fill-apply" class="primary">Fill checked fields</button>
+        <button id="btn-fill-cancel">Back</button>
+      </div>
+      <div id="fill-meta" class="meta"></div>
+      <div id="fill-list" class="list"></div>
+      <p class="footnote">
+        Nothing is written until you press Fill. Submit buttons are never touched —
+        you still submit the form yourself.
+      </p>
+    </section>
+
+    <!-- ---------------------------------------------------- pending view -->
+    <section id="view-pending" class="view hidden">
+      <div class="actions">
+        <button id="btn-pending-save" class="primary">Save checked</button>
+        <button id="btn-pending-discard">Discard this form</button>
+        <button id="btn-pending-back">Back</button>
+      </div>
+      <div id="pending-meta" class="meta"></div>
+      <div id="pending-list" class="list"></div>
+      <p class="footnote">
+        Captured when you submitted a form. Nothing here has entered the
+        knowledge base yet — untick anything you don't want kept.
+      </p>
+    </section>
+
+    <!-- --------------------------------------------------------- kb view -->
+    <section id="view-kb" class="view hidden">
+      <div class="actions">
+        <button id="btn-export">Export JSON</button>
+        <button id="btn-import">Import JSON</button>
+        <input type="file" id="import-file" accept="application/json" hidden />
+      </div>
+      <h3>Profile</h3>
+      <div id="kb-profile" class="list"></div>
+      <h3>Questions <span id="kb-q-count" class="muted"></span></h3>
+      <div id="kb-questions" class="list"></div>
+      <h3>Form-specific answers <span id="kb-f-count" class="muted"></span></h3>
+      <div id="kb-forms" class="list"></div>
+      <p class="footnote">
+        <a href="#" id="open-options">OpenRouter settings</a> ·
+        form-specific answers are pruned after 90 days unused.
+      </p>
+    </section>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="storage.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

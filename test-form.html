@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>JAF test fixture — fake application form</title>
+    <style>
+      body { font: 14px system-ui, sans-serif; margin: 24px; max-width: 640px; }
+      .row { margin-bottom: 14px; }
+      .q { font-weight: 600; margin-bottom: 4px; }
+      input, select, textarea { padding: 6px; width: 100%; box-sizing: border-box; }
+      input[type="radio"], input[type="checkbox"] { width: auto; }
+    </style>
+  </head>
+  <body>
+    <h1>Fake application form</h1>
+    <p>Dev fixture: exercises every label pattern content.js knows about.</p>
+    <form>
+      <!-- label[for] -->
+      <div class="row">
+        <label for="fn">First Name *</label>
+        <input id="fn" name="first_name" autocomplete="given-name" required />
+      </div>
+
+      <!-- wrapping label -->
+      <div class="row">
+        <label>Last Name <input name="last_name" autocomplete="family-name" /></label>
+      </div>
+
+      <!-- aria-label -->
+      <div class="row">
+        <input name="email" type="email" aria-label="Email Address" />
+      </div>
+
+      <!-- placeholder only -->
+      <div class="row"><input name="phone_1" placeholder="Mobile Phone" /></div>
+
+      <!-- aria-labelledby -->
+      <div class="row">
+        <div id="lbl-li">LinkedIn Profile URL</div>
+        <input name="li" aria-labelledby="lbl-li" />
+      </div>
+
+      <!-- preceding text node, no label element (Workday-ish) -->
+      <div class="row">
+        <div class="q">Current Employer</div>
+        <input name="emp_current" />
+      </div>
+
+      <!-- sibling <label>, no for/id, placeholder is example content
+           (React/Tailwind pattern — alexrivera.example.com/#contact) -->
+      <div class="row">
+        <div>
+          <label><span>$</span> name</label>
+          <input required placeholder="ada lovelace" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label><span>$</span> message</label>
+          <textarea required rows="5" placeholder="tell me about your project..."></textarea>
+        </div>
+      </div>
+
+      <!-- two controls in one container: must NOT borrow each other's label -->
+      <div class="row">
+        <div>
+          <label>Start Year</label>
+          <input name="start_year" placeholder="2019" />
+          <input name="end_year" placeholder="2023" />
+        </div>
+      </div>
+
+      <!-- select -->
+      <div class="row">
+        <label for="deg">Highest Degree</label>
+        <select id="deg" name="degree">
+          <option value="">Select...</option>
+          <option value="bs">Bachelor of Science</option>
+          <option value="ms">Master of Science</option>
+        </select>
+      </div>
+
+      <!-- radio group in a fieldset -->
+      <fieldset class="row">
+        <legend>Do you have a disability?</legend>
+        <label><input type="radio" name="disability" value="yes" /> Yes</label>
+        <label><input type="radio" name="disability" value="no" /> No</label>
+        <label><input type="radio" name="disability" value="decline" /> I don't wish to answer</label>
+      </fieldset>
+
+      <!-- radio group with role=radiogroup, no fieldset -->
+      <div class="row" role="radiogroup" aria-label="Are you a protected veteran?">
+        <label><input type="radio" name="veteran" value="yes" /> Yes</label>
+        <label><input type="radio" name="veteran" value="no" /> No</label>
+      </div>
+
+      <!-- standalone checkbox -->
+      <div class="row">
+        <label><input type="checkbox" name="sponsorship" /> Will you now or in the future require visa sponsorship?</label>
+      </div>
+
+      <!-- free text -->
+      <div class="row">
+        <label for="why">Why do you want to work here?</label>
+        <textarea id="why" name="why" rows="4"></textarea>
+      </div>
+
+      <!-- long maxlength counts as free text -->
+      <div class="row">
+        <label for="ach">Describe your biggest achievement</label>
+        <input id="ach" name="achievement" maxlength="500" />
+      </div>
+
+      <!-- must be ignored: password, hidden, file, submit -->
+      <div class="row"><label for="pw">Create a password</label><input id="pw" type="password" /></div>
+      <input type="hidden" name="csrf" value="xyz" />
+      <div class="row"><label for="cv">Resume</label><input id="cv" type="file" /></div>
+      <button type="submit">Submit Application</button>
+      <input type="submit" value="Submit" />
+      <div role="button" aria-label="Submit form">Submit</div>
+    </form>
+  </body>
+</html>

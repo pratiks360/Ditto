@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>JAF fixture — education &amp; work history</title>
+    <style>
+      body { font: 14px system-ui, sans-serif; margin: 24px; max-width: 680px; }
+      fieldset { margin-bottom: 16px; }
+      .f { margin-bottom: 10px; }
+      label { display: block; font-size: 12px; color: #444; }
+      input, select, textarea { padding: 5px; }
+      .inline { display: flex; gap: 8px; align-items: end; }
+    </style>
+  </head>
+  <body>
+    <h1>Education &amp; work history</h1>
+
+    <!-- ============ EDUCATION 1: split month/year selects ============ -->
+    <fieldset>
+      <legend>Education 1</legend>
+      <div class="f"><label for="e1s">University</label><input id="e1s" value="university of dubai" /></div>
+      <div class="f"><label for="e1d">Degree</label><input id="e1d" value="bachelor of science" /></div>
+      <div class="f"><label for="e1g">GPA</label><input id="e1g" value="3.8" /></div>
+      <div class="f inline">
+        <div>
+          <label>Start Date</label>
+          <div class="inline">
+            <select name="e1_start_month"><option value="">Month</option><option selected>September</option></select>
+            <select name="e1_start_year"><option value="">Year</option><option selected>2015</option></select>
+          </div>
+        </div>
+      </div>
+      <div class="f">
+        <label>End Date</label>
+        <div class="inline">
+          <select name="e1_end_month"><option value="">Month</option><option selected>June</option></select>
+          <select name="e1_end_year"><option value="">Year</option><option selected>2019</option></select>
+        </div>
+      </div>
+    </fieldset>
+
+    <!-- ============ EDUCATION 2: native date inputs ============ -->
+    <fieldset>
+      <legend>Education 2</legend>
+      <div class="f"><label for="e2s">University</label><input id="e2s" value="heriot watt university" /></div>
+      <div class="f"><label for="e2d">Degree</label><input id="e2d" value="master of science" /></div>
+      <div class="f"><label for="e2a">Start Date</label><input id="e2a" type="date" value="2020-09-01" /></div>
+      <div class="f"><label for="e2b">Graduation Date</label><input id="e2b" type="date" value="2022-06-30" /></div>
+    </fieldset>
+
+    <!-- ============ EXPERIENCE 1 ============ -->
+    <fieldset>
+      <legend>Employment 1</legend>
+      <div class="f"><label for="x1c">Company</label><input id="x1c" value="sap labs" /></div>
+      <div class="f"><label for="x1t">Job Title</label><input id="x1t" value="solution architect" /></div>
+      <div class="f"><label for="x1l">Location</label><input id="x1l" value="dubai" /></div>
+      <div class="f"><label for="x1a">Start Date</label><input id="x1a" type="date" value="2022-08-01" /></div>
+      <div class="f"><label for="x1b">End Date</label><input id="x1b" type="date" value="2025-01-31" /></div>
+      <div class="f"><label for="x1d">Description of responsibilities</label>
+        <textarea id="x1d" rows="3">Led ABAP integration work.</textarea></div>
+    </fieldset>
+
+    <!-- ============ EXPERIENCE 2: readonly widget-style date ============ -->
+    <fieldset>
+      <legend>Employment 2</legend>
+      <div class="f"><label for="x2c">Company</label><input id="x2c" value="infosys" /></div>
+      <div class="f"><label for="x2t">Job Title</label><input id="x2t" value="consultant" /></div>
+      <div class="f"><label for="x2a">Start Date</label><input id="x2a" readonly value="01/06/2019" /></div>
+      <div class="f"><label for="x2b">End Date</label><input id="x2b" readonly value="31/07/2022" /></div>
+    </fieldset>
+
+    <!-- a genuine question, to confirm it still routes to the question bank -->
+    <fieldset>
+      <legend>Do you have a disability?</legend>
+      <label><input type="radio" name="dis" value="no" checked /> No</label>
+    </fieldset>
+  </body>
+</html>

@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Radio and select fill harness</title>
+    <style>
+      body { font: 15px/1.6 system-ui, sans-serif; margin: 32px; max-width: 720px; }
+      fieldset { border: 1px solid #ddd; border-radius: 8px; margin: 18px 0; padding: 14px 16px; }
+      legend { font-weight: 600; }
+      label { display: flex; gap: 10px; align-items: center; padding: 3px 0; }
+      pre { background: #f6f6f7; padding: 10px; font-size: 12px; white-space: pre-wrap; }
+      button { font: inherit; padding: 6px 12px; }
+    </style>
+  </head>
+  <body>
+    <h1>Radio and select fill harness</h1>
+    <p>
+      The shapes that failed in the wild: a native radio group, a radio group
+      whose visible text sits in a sibling span, a framework-controlled select
+      that reverts a plain assignment, and a select whose option label differs
+      from its value.
+    </p>
+
+    <fieldset>
+      <legend>How did you hear about ElevenLabs?</legend>
+      <label><input type="radio" name="hear" value="user" /> <span>I'm a user</span></label>
+      <label><input type="radio" name="hear" value="news" /> <span>News article</span></label>
+      <label><input type="radio" name="hear" value="board" /> <span>Job board</span></label>
+      <label><input type="radio" name="hear" value="social" /> <span>Social media (LinkedIn, Instagram, X etc)</span></label>
+      <label><input type="radio" name="hear" value="event" /> <span>In person event</span></label>
+      <label><input type="radio" name="hear" value="ref" /> <span>Referral</span></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Years as a Solution Architect (framework-controlled)</legend>
+      <select id="years">
+        <option value="">Select an option</option>
+        <option value="0">0</option>
+        <option value="5">5</option>
+        <option value="10">10</option>
+      </select>
+      <p id="years-state" style="color:#b42318"></p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Country (label differs from value)</legend>
+      <select id="country">
+        <option value="">Select an option</option>
+        <option value="AE">United Arab Emirates</option>
+        <option value="IN">India</option>
+      </select>
+    </fieldset>
+
+    <button id="run">Fill them</button>
+    <pre id="out">press the button</pre>
+
+    <script>
+      // Emulates a React-controlled <select>: a plain `el.value = x` assignment
+      // is reverted, exactly as LinkedIn's did.
+      (() => {
+        const el = document.getElementById("years");
+        const proto = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
+        let committed = "";
+        Object.defineProperty(el, "value", {
+          get() { return proto.get.call(el); },
+          set(v) {
+            // Only a value that arrived with a change event is kept.
+            proto.set.call(el, v);
+            queueMicrotask(() => {
+              if (committed !== v) {
+                proto.set.call(el, committed);
+                document.getElementById("years-state").textContent =
+                  "Please enter a valid answer";
+              }
+            });
+          },
+          configurable: true
+        });
+        el.addEventListener("change", () => {
+          committed = proto.get.call(el);
+          document.getElementById("years-state").textContent = "";
+        });
+      })();
+
+      // ---- lifted from content.js -------------------------------------
+      const cleanText = (t) => String(t || "").replace(/\s+/g, " ").replace(/[*:]\s*$/, "").trim();
+      const looseEqual = (a, b) =>
+        String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+
+      function matchOption(options, value) {
+        const exact = options.find((o) => looseEqual(o.label, value) || looseEqual(o.value, value));
+        if (exact) return exact;
+        const v = String(value).trim().toLowerCase();
+        return options.find((o) =>
+          String(o.label).toLowerCase().includes(v) || v.includes(String(o.label).toLowerCase())
+        ) || null;
+      }
+
+      function setNativeValue(el, value) {
+        const proto = el instanceof HTMLSelectElement
+          ? HTMLSelectElement.prototype
+          : el instanceof HTMLTextAreaElement
+            ? HTMLTextAreaElement.prototype
+            : HTMLInputElement.prototype;
+        Object.getOwnPropertyDescriptor(proto, "value").set.call(el, value);
+      }
+
+      function setNativeChecked(el, checked) {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "checked").set.call(el, !!checked);
+      }
+
+      function notify(el, opts) {
+        const full = opts && opts.full;
+        if (full && el.focus) { try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); } }
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        if (full) {
+          el.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "0" }));
+          el.dispatchEvent(new Event("blur", { bubbles: false }));
+          el.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+          if (el.blur) el.blur();
+        }
+      }
+
+      function fillRadio(name, value) {
+        const els = [...document.querySelectorAll(`input[name="${name}"]`)];
+        const options = els.map((e) => ({
+          value: e.value,
+          label: cleanText(e.closest("label") ? e.closest("label").textContent : "")
+        }));
+        const opt = matchOption(options, value);
+        if (!opt) return { ok: false, reason: "no-matching-option" };
+        const target = els.find((e) => e.value === opt.value);
+        if (!target) return { ok: false, reason: "no-matching-option" };
+        setNativeChecked(target, true);
+        notify(target);
+        if (!target.checked) return { ok: false, reason: "rejected (did not stay checked)" };
+        return { ok: true, picked: opt.label };
+      }
+
+      function fillSelect(id, value) {
+        const el = document.getElementById(id);
+        const options = [...el.options].map((o) => ({ value: o.value, label: cleanText(o.textContent) }));
+        const opt = matchOption(options.filter((o) => o.value !== ""), value);
+        if (!opt) return { ok: false, reason: "no-matching-option" };
+        setNativeValue(el, opt.value);
+        notify(el, { full: true });
+        if (String(el.value) !== String(opt.value)) {
+          return { ok: false, reason: `rejected (kept "${el.value}")` };
+        }
+        return { ok: true, picked: opt.label };
+      }
+
+      document.getElementById("run").addEventListener("click", async () => {
+        const results = {
+          radio: fillRadio("hear", "Social media (LinkedIn, Instagram, X etc)"),
+          controlledSelect: fillSelect("years", "10"),
+          selectByLabel: fillSelect("country", "United Arab Emirates"),
+        };
+        await new Promise((r) => setTimeout(r, 50));   // let the revert fire
+        results.radioStuck = document.querySelector('input[name="hear"]:checked')?.value;
+        results.yearsStuck = document.getElementById("years").value;
+        results.countryStuck = document.getElementById("country").value;
+        document.getElementById("out").textContent = JSON.stringify(results, null, 2);
+        window.__result = results;
+      });
+    </script>
+  </body>
+</html>

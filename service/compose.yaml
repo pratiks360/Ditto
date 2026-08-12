@@ -1,0 +1,41 @@
+# podman-compose up -d --build
+#
+# Reads OPENROUTER_API_KEY from your environment (or from a .env file next to
+# this one). Set it once with:  setx OPENROUTER_API_KEY sk-or-v1-...
+
+services:
+  jobkb:
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: jobkb
+    # Published to the host's loopback only. Without the 127.0.0.1 prefix Podman
+    # would expose the service on every interface — a knowledge base holding your
+    # employment history and contact details has no business on a network.
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      # Your OKF bundle stays on the host, readable and editable as normal
+      # files. :Z relabels for SELinux; harmless on Windows.
+      # In the project, so it can be version controlled. It is a bind mount, not
+      # a named volume: a named volume would be invisible to git and would not
+      # survive `podman volume prune`.
+      - ${JOBKB_DATA_DIR:-../kb}:/data:Z
+      # Your resume folder, read-only. Set JOBKB_RESUME_DIR to the folder that
+      # holds it, then point JOBKB_RESUME / JOBKB_RESUME_FILE at /resume/<name>.
+      # Leave it as-is and the mount is harmless; use the picker in the
+      # extension's Options instead if you would rather not mount anything.
+      - ${JOBKB_RESUME_DIR:-${USERPROFILE:-${HOME}}/.jobkb}:/resume:ro
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      JOBKB_ROOT: /data
+      JOBKB_HOST: 0.0.0.0
+      JOBKB_PORT: "8765"
+      # Free models only. See start.bat for what raising this buys you.
+      JOBKB_MAX_PRICE: ${JOBKB_MAX_PRICE:-0}
+      JOBKB_TOKEN: ${JOBKB_TOKEN:-}
+      # Paths *inside the container* — i.e. under /resume, per the mount above.
+      # Re-read at every start, and only rewritten when the file has changed.
+      JOBKB_RESUME: ${JOBKB_RESUME:-}
+      JOBKB_RESUME_FILE: ${JOBKB_RESUME_FILE:-}
+    restart: unless-stopped

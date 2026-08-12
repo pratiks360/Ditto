@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Job Application Learner — Options</title>
+    <style>
+      body { font: 14px/1.5 system-ui, sans-serif; margin: 24px; max-width: 560px; }
+      h1 { font-size: 18px; }
+      label { display: block; margin: 16px 0 4px; font-weight: 600; }
+      input { width: 100%; padding: 8px; box-sizing: border-box; }
+      button { margin-top: 12px; padding: 8px 14px; }
+      .note { color: #555; font-size: 13px; }
+      .status { margin-top: 10px; color: #157347; min-height: 1.2em; }
+    </style>
+  </head>
+  <body>
+    <h1>Job Application Learner</h1>
+
+    <h2 style="font-size: 15px">Knowledge service</h2>
+    <p class="note">
+      A small program you run on this machine (see <code>service/README.md</code>).
+      It owns your profile, your work history and every answer learned from a
+      submitted form, stored as plain markdown you can read, edit or delete.
+      When it is running, <strong>Ctrl+Shift+F</strong> fills the form in front
+      of you and asks — in the page — about anything it could not answer.
+      When it is not, the extension falls back to its own storage.
+    </p>
+    <label style="font-weight: 400">
+      <input type="checkbox" id="serviceEnabled" style="width: auto" />
+      Use the knowledge service
+    </label>
+
+    <label for="serviceUrl">Service address</label>
+    <input id="serviceUrl" type="text" placeholder="http://127.0.0.1:8765" />
+
+    <label for="serviceToken">Shared token (only if you set JOBKB_TOKEN)</label>
+    <input id="serviceToken" type="password" autocomplete="off" />
+
+    <div>
+      <button id="service-save">Save</button>
+      <button id="service-test">Test service</button>
+    </div>
+    <div class="status" id="service-status"></div>
+    <pre id="service-result" hidden
+         style="background: #f6f6f7; padding: 8px; font-size: 12px;
+                white-space: pre-wrap; margin-top: 8px"></pre>
+
+    <h3 style="font-size: 14px; margin-top: 22px">Resume held by the service</h3>
+    <p class="note">
+      Two files, two jobs. The <strong>document</strong> (PDF or DOCX) is what
+      gets attached to a form's upload field. The <strong>text</strong> version
+      is what grounds answers the model has to write, since it can read words
+      but not a PDF. Send either or both — they are stored separately.
+    </p>
+    <div id="resume-service-state" class="note"
+         style="background: #f6f6f7; padding: 8px; border-radius: 4px"></div>
+
+    <label for="resume-doc">Resume document (.pdf, .docx) — attached to forms</label>
+    <input type="file" id="resume-doc" accept=".pdf,.docx,.doc,application/pdf" />
+
+    <label for="resume-txt">Resume text (.txt, .md) — grounds written answers</label>
+    <input type="file" id="resume-txt" accept=".txt,.md,text/plain" />
+
+    <div>
+      <button id="resume-send">Send to service</button>
+      <button id="resume-refresh">Refresh</button>
+    </div>
+    <div class="status" id="resume-send-status"></div>
+
+    <hr style="margin: 24px 0; border: 0; border-top: 1px solid #ddd" />
+
+    <h2 style="font-size: 15px">OpenRouter (extension-side fallback)</h2>
+    <p class="note">
+      <strong>Only used when the knowledge service is off.</strong> The service
+      has its own key (<code>OPENROUTER_API_KEY</code> in its environment) and
+      does the routing and drafting itself — that is the path
+      <kbd>Ctrl+Shift+F</kbd> uses. This key is for the older in-browser path:
+      the popup's <em>Fill (review first)</em> button and <em>Extract with
+      AI</em> below. You do not need both. Only the <strong>label text</strong>
+      is ever sent on this path; your answers never leave this browser.
+    </p>
+
+    <label for="apiKey">OpenRouter API key</label>
+    <input id="apiKey" type="password" placeholder="sk-or-v1-..." autocomplete="off" />
+
+    <label for="model">Model</label>
+    <input id="model" type="text" placeholder="model id" />
+    <p class="note">
+      Avoid router ids like <code>openrouter/free</code> — they pick a different
+      model each call, so results and speed vary wildly. Pin one model instead.
+    </p>
+
+    <label for="timeout">Request timeout (seconds)</label>
+    <input id="timeout" type="number" min="15" max="600" step="5" />
+
+    <button id="save">Save</button>
+    <button id="test-key">Test connection</button>
+    <button id="clear">Clear key</button>
+    <div class="status" id="status"></div>
+    <pre id="test-result" hidden
+         style="background: #f6f6f7; padding: 8px; font-size: 12px;
+                white-space: pre-wrap; margin-top: 8px"></pre>
+
+    <hr style="margin: 24px 0; border: 0; border-top: 1px solid #ddd" />
+
+    <h2 style="font-size: 15px">Resume</h2>
+    <p class="note">
+      Plain-text resume (<code>.txt</code>). Used two ways: parsed
+      <strong>in the browser</strong> to prefill empty profile fields, and — if
+      an API key is set above — sent to OpenRouter together with your saved
+      answers so the model can draft replies to questions you haven't answered
+      before. Without a key it never leaves this machine.
+    </p>
+    <input type="file" id="resume-file" accept=".txt,text/plain" />
+    <div>
+      <button id="resume-import">Prefill profile from resume</button>
+      <button id="resume-extract">Extract with AI</button>
+      <button id="resume-clear">Remove resume</button>
+    </div>
+    <p class="note">
+      <strong>Prefill</strong> parses the resume in the browser — fast, offline,
+      and only as good as the layout. <strong>Extract with AI</strong> sends the
+      whole resume to OpenRouter and reads back work history, education, skills
+      and other reusable facts; you review everything before it is saved. Both
+      only fill fields that are still empty and never overwrite your edits.
+    </p>
+    <div class="status" id="resume-status"></div>
+    <div id="extract-progress" hidden
+         style="margin-top: 8px; font-size: 13px; color: #555"></div>
+    <div id="extract-review" hidden>
+      <p class="note" style="margin-bottom: 4px">
+        Every value the model returned, against the profile field it maps to.
+        <strong>fill</strong> = empty, will be written · <strong>add</strong> =
+        new entry · <strong>keep</strong> = you already have a value, yours wins
+        · <strong>dup</strong> = already stored.
+      </p>
+      <pre id="extract-preview"
+           style="max-height: 300px; overflow: auto; background: #f6f6f7; padding: 8px;
+                  font-size: 12px; white-space: pre-wrap"></pre>
+      <button id="extract-apply">Save to profile</button>
+      <button id="extract-discard">Discard</button>
+    </div>
+    <pre id="resume-preview"
+         style="max-height: 160px; overflow: auto; background: #f6f6f7; padding: 8px;
+                font-size: 12px; white-space: pre-wrap; margin-top: 8px"></pre>
+
+    <hr style="margin: 24px 0; border: 0; border-top: 1px solid #ddd" />
+
+    <h2 style="font-size: 15px">Capture on submit</h2>
+    <p class="note">
+      When you submit a form, its answers are read into a review queue in the
+      popup. <strong>Nothing is saved until you approve it there</strong>, and
+      the submit itself is never delayed or altered. Switch this off to go back
+      to pressing <em>Save answers</em> yourself.
+    </p>
+    <label style="font-weight: 400">
+      <input type="checkbox" id="autoCapture" style="width: auto" />
+      Capture answers when I submit a form
+    </label>
+
+    <hr style="margin: 24px 0; border: 0; border-top: 1px solid #ddd" />
+
+    <h2 style="font-size: 15px">Debug log</h2>
+    <p class="note">
+      Records what the scanner saw — field labels, how each label was found, and
+      where it was classified — so a mis-detection can be reported. It stores
+      <strong>label text and value lengths only, never your answers</strong>.
+      Off by default; keeps the most recent 400 entries.
+    </p>
+    <label style="font-weight: 400">
+      <input type="checkbox" id="debug" style="width: auto" />
+      Capture debug log (also enables console output on scanned pages)
+    </label>
+    <div>
+      <button id="download-log">Download log</button>
+      <button id="clear-log">Clear log</button>
+      <span id="log-count" class="note"></span>
+    </div>
+
+    <script src="storage.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>

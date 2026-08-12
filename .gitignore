@@ -1,0 +1,30 @@
+# Secrets. The service's .env holds your OpenRouter API key.
+service/.env
+.env
+
+# Python
+service/.venv/
+__pycache__/
+*.py[cod]
+
+# Derived, rebuildable from the markdown at any time
+kb/.index/
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+
+# ---------------------------------------------------------------------------
+# NOTE ON kb/
+#
+# kb/ IS tracked on purpose: it is your knowledge base, and its history is the
+# useful part — you can see what an answer used to say and get it back.
+#
+# It also contains personal data: your name, email, phone, employment history,
+# every answer you have given, and your resume PDF. That is fine in a local or
+# private repository. Do not push it to a public one.
+#
+# To keep the code in git but not the data, uncomment:
+# kb/

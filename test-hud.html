@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>HUD harness</title>
+    <style>
+      body { font: 15px/1.6 system-ui, sans-serif; margin: 40px; max-width: 620px; }
+      button { font: inherit; padding: 6px 12px; margin-right: 6px; }
+      /* A page stylesheet that would wreck the readout if it were not in a
+         shadow root — that is exactly what this harness is checking. */
+      div, span { color: red !important; background: yellow !important; font-size: 30px !important; }
+    </style>
+  </head>
+  <body>
+    <h1>Status readout harness</h1>
+    <p>
+      The page CSS above tries to make every div red-on-yellow at 30px. If the
+      readout survives it, the shadow root is doing its job.
+    </p>
+    <button id="run">Run a fake fill</button>
+    <button id="fail">Run a failing fill</button>
+    <p>Drag the readout by its title bar; it should stay inside the window.</p>
+
+    <script>
+      // The HUD lifted verbatim from content.js, so the harness exercises the
+      // shipped code rather than a copy that has drifted from it.
+      const HUD_ID = "jaf-hud-host";
+      let hudBody = null;
+      let hudPosition = null;
+
+      const HUD_CSS = `
+        :host { all: initial; }
+        .hud {
+          position: fixed; top: 16px; right: 16px; width: 290px;
+          z-index: 2147483647;
+          font: 12px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace;
+          color: #f4f4f5; background: rgba(17, 17, 19, .88);
+          -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+          border: 1px solid rgba(255,255,255,.14); border-radius: 8px;
+          box-shadow: 0 10px 30px rgba(0,0,0,.4);
+          user-select: none;
+        }
+        .bar {
+          display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+          border-bottom: 1px solid rgba(255,255,255,.1);
+          cursor: grab; font-weight: 600; letter-spacing: .02em;
+        }
+        .bar.dragging { cursor: grabbing; }
+        .bar .grow { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .bar button {
+          border: 0; background: none; color: #a1a1aa; font: inherit; font-size: 14px;
+          line-height: 1; cursor: pointer; padding: 0 2px;
+        }
+        .bar button:hover { color: #fff; }
+        .lines { padding: 6px 10px 9px; max-height: 45vh; overflow-y: auto; }
+        .line { display: flex; gap: 7px; padding: 1px 0; align-items: baseline; }
+        .dot { flex: none; width: 6px; height: 6px; border-radius: 50%; margin-top: 5px; }
+        .dot.work { background: #fbbf24; animation: jaf-blink 1s ease-in-out infinite; }
+        .dot.ok   { background: #34d399; }
+        .dot.bad  { background: #f87171; }
+        .dot.info { background: #52525b; }
+        .txt { flex: 1; word-break: break-word; }
+        .line.info .txt { color: #a1a1aa; }
+        .line.bad  .txt { color: #fca5a5; }
+        @keyframes jaf-blink { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
+      `;
+
+      function closeHud() {
+        const host = document.getElementById(HUD_ID);
+        if (host) host.remove();
+        hudBody = null;
+      }
+
+      function makeDraggable(bar, wrap) {
+        let startX = 0, startY = 0, originX = 0, originY = 0;
+        const onMove = (e) => {
+          const w = wrap.offsetWidth, h = wrap.offsetHeight;
+          const x = Math.min(Math.max(0, originX + e.clientX - startX), innerWidth - w);
+          const y = Math.min(Math.max(0, originY + e.clientY - startY), innerHeight - h);
+          wrap.style.left = x + "px";
+          wrap.style.top = y + "px";
+          wrap.style.right = "auto";
+          hudPosition = { x, y };
+        };
+        const onUp = () => {
+          bar.classList.remove("dragging");
+          removeEventListener("pointermove", onMove);
+          removeEventListener("pointerup", onUp);
+        };
+        bar.addEventListener("pointerdown", (e) => {
+          if (e.target.tagName === "BUTTON") return;
+          const rect = wrap.getBoundingClientRect();
+          startX = e.clientX; startY = e.clientY;
+          originX = rect.left; originY = rect.top;
+          bar.classList.add("dragging");
+          addEventListener("pointermove", onMove);
+          addEventListener("pointerup", onUp);
+          e.preventDefault();
+        });
+      }
+
+      function ensureHud(title) {
+        closeHud();
+        const host = document.createElement("div");
+        host.id = HUD_ID;
+        const root = host.attachShadow({ mode: "open" });
+        const style = document.createElement("style");
+        style.textContent = HUD_CSS;
+        root.appendChild(style);
+
+        const wrap = document.createElement("div");
+        wrap.className = "hud";
+        if (hudPosition) {
+          wrap.style.left = hudPosition.x + "px";
+          wrap.style.top = hudPosition.y + "px";
+          wrap.style.right = "auto";
+        }
+
+        const bar = document.createElement("div");
+        bar.className = "bar";
+        const label = document.createElement("span");
+        label.className = "grow";
+        label.textContent = title;
+        const close = document.createElement("button");
+        close.textContent = "×";
+        close.title = "Close";
+        close.addEventListener("click", closeHud);
+        bar.append(label, close);
+
+        hudBody = document.createElement("div");
+        hudBody.className = "lines";
+        wrap.append(bar, hudBody);
+        root.appendChild(wrap);
+        document.documentElement.appendChild(host);
+        makeDraggable(bar, wrap);
+        return hudBody;
+      }
+
+      function hudLine(text, tone) {
+        if (!hudBody) return null;
+        const line = document.createElement("div");
+        line.className = "line " + (tone || "info");
+        const dot = document.createElement("span");
+        dot.className = "dot " + (tone || "info");
+        const txt = document.createElement("span");
+        txt.className = "txt";
+        txt.textContent = text;
+        line.append(dot, txt);
+        hudBody.appendChild(line);
+        hudBody.scrollTop = hudBody.scrollHeight;
+        return {
+          set(newText, newTone) {
+            txt.textContent = newText;
+            line.className = "line " + (newTone || "info");
+            dot.className = "dot " + (newTone || "info");
+            hudBody.scrollTop = hudBody.scrollHeight;
+          }
+        };
+      }
+
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+      document.getElementById("run").addEventListener("click", async () => {
+        ensureHud("Job Application Learner");
+        const scanning = hudLine("scanning the page…", "work");
+        await wait(600);
+        scanning.set("18 fields found (4 already answered)", "ok");
+
+        const asking = hudLine("asking the knowledge base…", "work");
+        await wait(1400);
+        asking.set("knowledge base answered in 2.0s", "ok");
+        hudLine("routed 11 field(s) via google/gemma-4-26b-a4b-it:free", "info");
+        hudLine("answered 1 dropdown(s) via google/gemma-4-26b-a4b-it:free", "info");
+        hudLine("drafted 4 answer(s) via google/gemma-4-26b-a4b-it:free", "info");
+        await wait(300);
+        hudLine("filled 7 fields", "ok");
+        hudLine("3 from your knowledge base", "info");
+        hudLine("4 written by the model — check them", "info");
+        hudLine("1 refused by the page — shown to type in", "info");
+        hudLine("7 need your answer", "bad");
+      });
+
+      document.getElementById("fail").addEventListener("click", async () => {
+        ensureHud("Job Application Learner");
+        const scanning = hudLine("scanning the page…", "work");
+        await wait(400);
+        scanning.set("18 fields found", "ok");
+        const asking = hudLine("asking the knowledge base…", "work");
+        await wait(900);
+        asking.set("knowledge service unreachable", "bad");
+        hudLine("Failed to fetch — is the service running at http://127.0.0.1:8765?", "bad");
+        hudLine("falling back to local storage", "info");
+        hudLine("filled 4 fields", "ok");
+      });
+    </script>
+  </body>
+</html>

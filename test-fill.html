@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>JAF fixture — fill</title>
+    <style>body{font:14px system-ui;margin:24px;max-width:560px}.f{margin-bottom:12px}label{display:block}</style>
+  </head>
+  <body>
+    <h1>Fill target</h1>
+    <form>
+      <div class="f"><label for="e">Email address</label><input id="e" type="email" /></div>
+      <div class="f"><label for="p">Mobile phone number</label><input id="p" type="tel" /></div>
+      <div class="f"><label for="c">Phone country code</label>
+        <select id="c"><option value="">Select</option><option value="971">United Arab Emirates (+971)</option><option value="91">India (+91)</option></select>
+      </div>
+      <fieldset class="f"><legend>Do you have a disability?</legend>
+        <label><input type="radio" name="dis" value="yes" /> Yes</label>
+        <label><input type="radio" name="dis" value="no" /> No</label>
+        <label><input type="radio" name="dis" value="decline" /> I don't wish to answer</label>
+      </fieldset>
+      <div class="f"><label><input type="checkbox" id="spon" /> Will you require visa sponsorship?</label></div>
+      <div class="f"><label for="why">Why do you want to work here?</label><textarea id="why" rows="3"></textarea></div>
+      <div class="f"><label for="ro">Start Date</label><input id="ro" readonly /></div>
+      <button type="submit">Submit Application</button>
+    </form>
+    <script>
+      // Track submit attempts so the test can prove fill never triggers one.
+      window.__submits = 0;
+      document.querySelector("form").addEventListener("submit", (e) => { e.preventDefault(); window.__submits++; });
+      // Record change events, the way a framework would observe them.
+      window.__changes = [];
+      document.addEventListener("change", (e) => window.__changes.push(e.target.id || e.target.name), true);
+    </script>
+  </body>
+</html>

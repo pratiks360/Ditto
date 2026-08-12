@@ -1,0 +1,60 @@
+{
+  "manifest_version": 3,
+  "name": "Job Application Learner",
+  "version": "0.10.0",
+  "description": "Fills job application forms from a local knowledge base that learns from every form you submit. Anything it cannot answer is highlighted and asked, once. It never submits.",
+  "permissions": [
+    "storage",
+    "downloads",
+    "activeTab",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "https://openrouter.ai/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "commands": {
+    "autofill": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+F",
+        "mac": "MacCtrl+Shift+F"
+      },
+      "description": "Fill this form from the knowledge base"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "storage.js",
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Job Application Learner",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "options.html"
+}
