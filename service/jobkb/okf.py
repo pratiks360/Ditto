@@ -256,7 +256,10 @@ def write_index_md(root: Path, rel_dir: str, title: str, description: str = "") 
         elif child.suffix == ".md":
             children.append(f"- [{child.stem}]({child.name})")
 
-    meta = {"type": "Index", "title": title, "timestamp": now_iso()}
+    # Deliberately no timestamp. An index is derived navigation, regenerated on
+    # every write, so a timestamp would make all of them dirty in version
+    # control every time anything at all changed.
+    meta: dict[str, Any] = {"type": "Index", "title": title}
     if description:
         meta["description"] = description
     head = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True).rstrip()
