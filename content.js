@@ -686,6 +686,134 @@
     return { ok: true, wasReadOnly };
   }
 
+  // ------------------------------------------------------- custom comboboxes
+  //
+  // Ashby, Greenhouse and Workday render "dropdowns" as a text input plus a
+  // popup listbox. Writing into the input looks like it worked — the value is
+  // there, and it reads back — but the widget only commits when an option in
+  // its list is chosen, so the form still submits empty. The only reliable way
+  // in is to do what a person does: open it, filter, click the option.
+
+  function isCombobox(el) {
+    if (!el || el.tagName === "SELECT") return false;
+    const role = (el.getAttribute("role") || "").toLowerCase();
+    if (role === "combobox") return true;
+    if ((el.getAttribute("aria-haspopup") || "").toLowerCase() === "listbox") return true;
+    if (el.hasAttribute("aria-expanded") || el.hasAttribute("aria-autocomplete")) return true;
+    return !!(el.closest && el.closest('[role="combobox"]'));
+  }
+
+  const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  /** Every option currently on offer, wherever the widget chose to render it. */
+  function listboxOptions(el) {
+    const ids = `${el.getAttribute("aria-controls") || ""} ${el.getAttribute("aria-owns") || ""}`.trim();
+    const roots = [];
+    ids.split(/\s+/).filter(Boolean).forEach((id) => {
+      const node = document.getElementById(id);
+      if (node) roots.push(node);
+    });
+    if (!roots.length) roots.push(document);
+
+    let options = [];
+    roots.forEach((root) => {
+      options = options.concat(deepQuery('[role="option"]', root));
+    });
+    // Some widgets use a plain list with no roles at all.
+    if (!options.length) {
+      const box = el.closest('[role="combobox"], [class*="select" i], [class*="combobox" i]')
+                  || el.parentElement;
+      if (box) options = deepQuery('li, [class*="option" i]', box);
+    }
+    return options.filter(isVisible);
+  }
+
+  function pick(el) {
+    // A framework may listen on any one of these; send the sequence a real
+    // pointer produces rather than guessing which.
+    ["pointerdown", "mousedown", "mouseup", "click"].forEach((type) => {
+      const Ctor = type.startsWith("pointer") && window.PointerEvent ? PointerEvent : MouseEvent;
+      el.dispatchEvent(new Ctor(type, { bubbles: true, cancelable: true, view: window }));
+    });
+  }
+
+  /**
+   * Chooses `value` in a custom combobox. Returns the same shape as fillGroup.
+   * Leaves the widget closed whether it succeeded or not.
+   */
+  async function fillCombobox(el, value) {
+    const want = String(value).trim();
+    if (!want) return { ok: false, reason: "no value" };
+
+    try { el.focus({ preventScroll: true }); } catch (e) { /* not focusable */ }
+    pick(el);
+    await frame();
+
+    // Typing filters the list on widgets that support it; harmless on those
+    // that do not, and skipped when the input refuses text.
+    if (el.tagName === "INPUT" && !el.readOnly) {
+      try {
+        setNativeValue(el, want);
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        await pause(140);
+      } catch (e) { /* the widget rejects typing; the full list is still open */ }
+    }
+
+    let options = listboxOptions(el);
+    if (!options.length) {
+      await pause(200);            // some widgets fetch their options
+      options = listboxOptions(el);
+    }
+    if (!options.length) {
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      return { ok: false, reason: "combobox did not open" };
+    }
+
+    const target =
+      options.find((o) => looseEqual(cleanText(o.textContent), want)) ||
+      options.find((o) => cleanText(o.textContent).toLowerCase().startsWith(want.toLowerCase())) ||
+      options.find((o) => cleanText(o.textContent).toLowerCase().includes(want.toLowerCase()));
+
+    if (!target) {
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      const offered = options.slice(0, 6).map((o) => cleanText(o.textContent)).join(", ");
+      return { ok: false, reason: `no option matches "${want}" (offered: ${offered})` };
+    }
+
+    const chosen = cleanText(target.textContent);
+    pick(target);
+    await frame();
+    await pause(120);
+
+    // Did it take? The widget shows its choice in the input, or as the label of
+    // the collapsed control.
+    const shown = cleanText(
+      (el.value || "") + " " +
+      (el.closest('[role="combobox"]') ? el.closest('[role="combobox"]').textContent : "")
+    ).toLowerCase();
+    if (!shown.includes(chosen.toLowerCase())) {
+      return { ok: false, reason: `picked "${chosen}" but the control did not keep it` };
+    }
+    return { ok: true, picked: chosen };
+  }
+
+  /**
+   * fillGroup, plus the custom-combobox path. Async because choosing an option
+   * means waiting for a popup to render.
+   */
+  async function fillField(group, value) {
+    const el = group.elements[0];
+    if (group.kind !== "radio" && isCombobox(el)) {
+      const out = await fillCombobox(el, value);
+      // A widget that turned out to be an ordinary input after all still gets
+      // the normal treatment rather than being written off.
+      if (!out.ok && out.reason === "combobox did not open") return fillGroup(group, value);
+      return out;
+    }
+    return fillGroup(group, value);
+  }
+
   const HIGHLIGHT_STYLE_ID = "jaf-highlight-style";
 
   /**
@@ -1171,35 +1299,37 @@
     const entries = [];
     let filled = 0;
 
-    decisions.forEach((d) => {
+    // Sequential, not forEach: a combobox has to open, filter and settle, and
+    // two of them racing would fight over focus and the open popup.
+    for (const d of decisions) {
       const field = fields[Number(d.id)];
-      if (!field) return;
+      if (!field) continue;
 
       if ((d.action === "fill" || d.action === "review") && d.value) {
-        const result = fillGroup(field._group, d.value);
+        const result = await fillField(field._group, d.value);
         if (result.ok) {
           filled++;
           // A drafted answer is written, but it is still the model's words.
           if (d.generated || d.action === "review") {
             entries.push({ field, decision: d, tone: "review" });
           }
-          return;
+          continue;
         }
         // The widget refused the write. We still know the answer, so show it
         // rather than leaving an empty box: this is the date-picker case.
         entries.push({ field, decision: d, tone: "value", why: result.reason });
-        return;
+        continue;
       }
 
       if (d.action === "highlight_with_value" && d.value) {
         entries.push({ field, decision: d, tone: "value", why: d.reason });
-        return;
+        continue;
       }
 
       if (worthAsking(field)) {
         entries.push({ field, decision: d, tone: "ask" });
       }
-    });
+    }
 
     // Where the written values actually came from. "from your knowledge base"
     // means stored text, substituted here; the model never handled it.
@@ -1691,13 +1821,18 @@
         return;
       }
 
-      const result = fillGroup(field._group, value);
+      insert.disabled = true;
+      status.className = "status";
+      status.textContent = "Filling…";
+      const result = await fillField(field._group, value);
+      insert.disabled = false;
+
       if (!result.ok) {
         status.className = "status bad";
         status.textContent = `Could not write it (${result.reason}). Copy it in yourself.`;
       } else {
         status.className = "status";
-        status.textContent = "Filled.";
+        status.textContent = result.picked ? `Filled with "${result.picked}".` : "Filled.";
         field._group.elements[0].classList.remove("jaf-needs-you", "jaf-needs-you-review");
       }
 

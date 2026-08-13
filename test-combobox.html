@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Custom combobox harness</title>
+    <style>
+      body { font: 15px/1.6 system-ui, sans-serif; margin: 32px; max-width: 720px; }
+      .field { margin: 18px 0; }
+      .label { font-weight: 600; margin-bottom: 6px; }
+      .combo { position: relative; border: 1px solid #ccc; border-radius: 6px; padding: 10px 12px; cursor: pointer; }
+      .combo input { border: 0; outline: 0; font: inherit; width: 90%; }
+      .list { position: absolute; left: 0; right: 0; top: 100%; background: #fff;
+              border: 1px solid #ccc; border-top: 0; z-index: 5; }
+      .list[hidden] { display: none; }
+      .opt { padding: 10px 12px; }
+      .opt:hover { background: #eef2ff; }
+      pre { background: #f6f6f7; padding: 10px; font-size: 12px; white-space: pre-wrap; }
+      button { font: inherit; padding: 6px 12px; }
+    </style>
+  </head>
+  <body>
+    <h1>Custom combobox harness</h1>
+    <p>
+      The Ashby/Greenhouse shape: an input plus a popup listbox. Writing into the
+      input leaves the widget's own state untouched, so the form submits empty —
+      the value only counts once an option is chosen.
+    </p>
+
+    <div class="field">
+      <div class="label" id="lbl1">Are you subject to any employment agreements?</div>
+      <div class="combo" role="combobox" aria-haspopup="listbox" aria-expanded="false"
+           aria-controls="list1" id="combo1">
+        <input id="input1" placeholder="Select..." aria-labelledby="lbl1" autocomplete="off" />
+        <div class="list" id="list1" role="listbox" hidden>
+          <div class="opt" role="option">Yes</div>
+          <div class="opt" role="option">No</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <div class="label" id="lbl2">Please choose the country in which you are located.</div>
+      <div class="combo" role="combobox" aria-haspopup="listbox" aria-expanded="false"
+           aria-controls="list2" id="combo2">
+        <input id="input2" placeholder="Select..." aria-labelledby="lbl2" readonly autocomplete="off" />
+        <div class="list" id="list2" role="listbox" hidden>
+          <div class="opt" role="option">India</div>
+          <div class="opt" role="option">United Arab Emirates</div>
+          <div class="opt" role="option">United Kingdom</div>
+        </div>
+      </div>
+    </div>
+
+    <button id="run">Fill both</button>
+    <pre id="out">press the button</pre>
+
+    <script>
+      // The widget's own state. Typing into the input never touches it — that is
+      // the whole point, and the reason the naive write silently failed.
+      const committed = { combo1: "", combo2: "" };
+
+      function wire(comboId, inputId, listId) {
+        const combo = document.getElementById(comboId);
+        const input = document.getElementById(inputId);
+        const list = document.getElementById(listId);
+
+        combo.addEventListener("mousedown", () => {
+          list.hidden = false;
+          combo.setAttribute("aria-expanded", "true");
+        });
+
+        list.querySelectorAll('[role="option"]').forEach((opt) => {
+          opt.addEventListener("mousedown", (e) => {
+            e.stopPropagation();
+            committed[comboId] = opt.textContent.trim();
+            input.value = committed[comboId];
+            list.hidden = true;
+            combo.setAttribute("aria-expanded", "false");
+            input.dispatchEvent(new Event("change", { bubbles: true }));
+          });
+        });
+
+        // A real widget redraws from its own state on blur, wiping anything
+        // that was typed straight in.
+        input.addEventListener("blur", () => {
+          input.value = committed[comboId];
+        });
+        document.addEventListener("keydown", (e) => {
+          if (e.key === "Escape") { list.hidden = true; combo.setAttribute("aria-expanded", "false"); }
+        });
+      }
+      wire("combo1", "input1", "list1");
+      wire("combo2", "input2", "list2");
+
+      // ---- lifted from content.js ------------------------------------------
+      const cleanText = (t) => String(t || "").replace(/\s+/g, " ").replace(/[*:]\s*$/, "").trim();
+      const looseEqual = (a, b) =>
+        String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+      const isVisible = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+
+      function deepQuery(selector, root, out) {
+        const acc = out || [];
+        const scope = root || document;
+        scope.querySelectorAll(selector).forEach((el) => acc.push(el));
+        return acc;
+      }
+
+      function setNativeValue(el, value) {
+        const proto = el instanceof HTMLSelectElement ? HTMLSelectElement.prototype
+          : el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype
+          : HTMLInputElement.prototype;
+        Object.getOwnPropertyDescriptor(proto, "value").set.call(el, value);
+      }
+
+      function isCombobox(el) {
+        if (!el || el.tagName === "SELECT") return false;
+        const role = (el.getAttribute("role") || "").toLowerCase();
+        if (role === "combobox") return true;
+        if ((el.getAttribute("aria-haspopup") || "").toLowerCase() === "listbox") return true;
+        if (el.hasAttribute("aria-expanded") || el.hasAttribute("aria-autocomplete")) return true;
+        return !!(el.closest && el.closest('[role="combobox"]'));
+      }
+
+      const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+      const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+      function listboxOptions(el) {
+        const ids = `${el.getAttribute("aria-controls") || ""} ${el.getAttribute("aria-owns") || ""}`.trim();
+        const roots = [];
+        ids.split(/\s+/).filter(Boolean).forEach((id) => {
+          const node = document.getElementById(id);
+          if (node) roots.push(node);
+        });
+        if (!roots.length) roots.push(document);
+        let options = [];
+        roots.forEach((root) => { options = options.concat(deepQuery('[role="option"]', root)); });
+        if (!options.length) {
+          const box = el.closest('[role="combobox"], [class*="select" i], [class*="combobox" i]') || el.parentElement;
+          if (box) options = deepQuery('li, [class*="option" i]', box);
+        }
+        return options.filter(isVisible);
+      }
+
+      function pick(el) {
+        ["pointerdown", "mousedown", "mouseup", "click"].forEach((type) => {
+          const Ctor = type.startsWith("pointer") && window.PointerEvent ? PointerEvent : MouseEvent;
+          el.dispatchEvent(new Ctor(type, { bubbles: true, cancelable: true, view: window }));
+        });
+      }
+
+      async function fillCombobox(el, value) {
+        const want = String(value).trim();
+        if (!want) return { ok: false, reason: "no value" };
+        try { el.focus({ preventScroll: true }); } catch (e) {}
+        pick(el);
+        await frame();
+
+        if (el.tagName === "INPUT" && !el.readOnly) {
+          try {
+            setNativeValue(el, want);
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+            await pause(140);
+          } catch (e) {}
+        }
+
+        let options = listboxOptions(el);
+        if (!options.length) { await pause(200); options = listboxOptions(el); }
+        if (!options.length) {
+          el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+          return { ok: false, reason: "combobox did not open" };
+        }
+
+        const target =
+          options.find((o) => looseEqual(cleanText(o.textContent), want)) ||
+          options.find((o) => cleanText(o.textContent).toLowerCase().startsWith(want.toLowerCase())) ||
+          options.find((o) => cleanText(o.textContent).toLowerCase().includes(want.toLowerCase()));
+
+        if (!target) {
+          el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+          const offered = options.slice(0, 6).map((o) => cleanText(o.textContent)).join(", ");
+          return { ok: false, reason: `no option matches "${want}" (offered: ${offered})` };
+        }
+
+        const chosen = cleanText(target.textContent);
+        pick(target);
+        await frame();
+        await pause(120);
+
+        const shown = cleanText(
+          (el.value || "") + " " +
+          (el.closest('[role="combobox"]') ? el.closest('[role="combobox"]').textContent : "")
+        ).toLowerCase();
+        if (!shown.includes(chosen.toLowerCase())) {
+          return { ok: false, reason: `picked "${chosen}" but the control did not keep it` };
+        }
+        return { ok: true, picked: chosen };
+      }
+
+      document.getElementById("run").addEventListener("click", async () => {
+        const results = {};
+
+        // What the old code did: write into the input and call it done.
+        const naive = document.getElementById("input1");
+        setNativeValue(naive, "No");
+        naive.dispatchEvent(new Event("input", { bubbles: true }));
+        results.naive = { inputReads: naive.value, widgetState: committed.combo1 };
+        naive.dispatchEvent(new Event("blur"));
+        naive.blur();
+        await pause(50);
+        results.naiveAfterBlur = { inputReads: naive.value, widgetState: committed.combo1 };
+
+        results.detected1 = isCombobox(document.getElementById("input1"));
+        results.detected2 = isCombobox(document.getElementById("input2"));
+
+        results.typeable = await fillCombobox(document.getElementById("input1"), "No");
+        results.readonly = await fillCombobox(document.getElementById("input2"), "United Arab Emirates");
+        results.notAnOption = await fillCombobox(document.getElementById("input1"), "Maybe");
+
+        await pause(100);
+        results.committed = { ...committed };
+        document.getElementById("out").textContent = JSON.stringify(results, null, 2);
+        window.__result = results;
+      });
+    </script>
+  </body>
+</html>

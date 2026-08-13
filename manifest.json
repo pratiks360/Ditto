@@ -1,7 +1,7 @@
-{
+﻿{
   "manifest_version": 3,
   "name": "Job Application Learner",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Fills job application forms from a local knowledge base that learns from every form you submit. Anything it cannot answer is highlighted and asked, once. It never submits.",
   "permissions": [
     "storage",
