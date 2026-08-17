@@ -161,7 +161,7 @@
       const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
       document.getElementById("run").addEventListener("click", async () => {
-        ensureHud("Job Application Learner");
+        ensureHud("Ditto");
         const scanning = hudLine("scanning the page…", "work");
         await wait(600);
         scanning.set("18 fields found (4 already answered)", "ok");
@@ -181,7 +181,7 @@
       });
 
       document.getElementById("fail").addEventListener("click", async () => {
-        ensureHud("Job Application Learner");
+        ensureHud("Ditto");
         const scanning = hudLine("scanning the page…", "work");
         await wait(400);
         scanning.set("18 fields found", "ok");

@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Radio grouping harness</title>
+    <style>
+      body { font: 15px/1.6 system-ui, sans-serif; margin: 32px; max-width: 820px; }
+      .q { margin: 22px 0; }
+      .qtext { margin-bottom: 6px; }
+      .req { color: #b42318; }
+      pre { background: #f6f6f7; padding: 10px; font-size: 12px; white-space: pre-wrap; }
+      button { font: inherit; padding: 6px 12px; }
+
+      /* The pattern that hides the real input behind a drawn one. */
+      .drawn input[type="radio"] { position: absolute; opacity: 0; width: 1px; height: 1px; }
+      .drawn label { display: inline-flex; align-items: center; gap: 6px; margin-right: 18px; }
+      .drawn label::before {
+        content: ""; width: 16px; height: 16px; border: 2px solid #888; border-radius: 50%;
+      }
+      /* The harsher variant: display:none, no box at all. */
+      .gone input[type="radio"] { display: none; }
+      .gone label { display: inline-flex; gap: 6px; margin-right: 18px; }
+    </style>
+  </head>
+  <body>
+    <h1>Radio grouping harness</h1>
+    <p>
+      Four shapes a "Yes / No" question arrives in. Two of them used to vanish:
+      an input hidden behind CSS was judged invisible and never scanned, and
+      radios with no shared <code>name</code> never grouped, so the question was
+      lost and each button was labelled only with the word printed on it.
+    </p>
+
+    <!-- 1. Plain named radios. The case that always worked. -->
+    <div class="q">
+      <div class="qtext">Do you have the right to work in the UK? <span class="req">*</span></div>
+      <label><input type="radio" name="rtw" value="yes" /> Yes</label>
+      <label><input type="radio" name="rtw" value="no" /> No</label>
+    </div>
+
+    <!-- 2. Named, but the input is drawn over and invisible. -->
+    <div class="q drawn">
+      <div class="qtext">Will you now or in the future require sponsorship? <span class="req">*</span></div>
+      <label for="sp-y"><input type="radio" id="sp-y" name="sponsor" value="yes" />Yes</label>
+      <label for="sp-n"><input type="radio" id="sp-n" name="sponsor" value="no" />No</label>
+    </div>
+
+    <!-- 3. No name at all, held together by role=radiogroup. -->
+    <div class="q">
+      <div class="qtext">Have you previously been employed by us?</div>
+      <div role="radiogroup">
+        <label><input type="radio" value="yes" /> Yes</label>
+        <label><input type="radio" value="no" /> No</label>
+      </div>
+    </div>
+
+    <!-- 4. No name, display:none input, fieldset + legend. -->
+    <fieldset class="q gone">
+      <legend>Are you willing to relocate?</legend>
+      <label for="rl-y"><input type="radio" id="rl-y" value="yes" />Yes</label>
+      <label for="rl-n"><input type="radio" id="rl-n" value="no" />No</label>
+    </fieldset>
+
+    <button id="run">Scan</button>
+    <pre id="out">press the button</pre>
+
+    <script>
+      // ---- lifted from content.js ------------------------------------------
+      const SKIPPED_INPUT_TYPES = new Set([
+        "password", "hidden", "submit", "button", "image", "reset", "file"
+      ]);
+      const SUBMIT_SELECTOR =
+        'button[type="submit"], input[type="submit"], [role="button"][aria-label*="submit" i]';
+
+      const cleanText = (t) => String(t || "").replace(/\s+/g, " ").replace(/[*:]\s*$/, "").trim();
+
+      function isSubmitControl(el) {
+        try { return !!(el && el.matches && el.matches(SUBMIT_SELECTOR)); } catch (e) { return true; }
+      }
+      function isVisible(el) {
+        if (!el || !el.getBoundingClientRect) return false;
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) return false;
+        const style = getComputedStyle(el);
+        return style.visibility !== "hidden" && style.display !== "none";
+      }
+      function controlIsReachable(el) {
+        if (isVisible(el)) return true;
+        if (!/^(radio|checkbox)$/.test((el && el.type) || "")) return false;
+        const proxies = [];
+        if (el.id) {
+          try {
+            const bound = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+            if (bound) proxies.push(bound);
+          } catch (e) {}
+        }
+        const wrap = el.closest &&
+          el.closest("label, [role='radio'], [role='checkbox'], [class*='radio' i], [class*='checkbox' i]");
+        if (wrap) proxies.push(wrap);
+        return proxies.some(isVisible);
+      }
+      function deepQuery(selector, root, out) {
+        const acc = out || [];
+        (root || document).querySelectorAll(selector).forEach((el) => acc.push(el));
+        return acc;
+      }
+      function ownText(el) {
+        if (!el) return "";
+        const clone = el.cloneNode(true);
+        clone.querySelectorAll("input, select, textarea").forEach((n) => n.remove());
+        return cleanText(clone.textContent);
+      }
+      function isControl(node) { return /^(INPUT|SELECT|TEXTAREA)$/.test(node.tagName); }
+      function precedingText(el) {
+        let node = el;
+        for (let hops = 0; hops < 6 && node; hops++) {
+          let sib = node.previousElementSibling;
+          while (sib) {
+            if (isControl(sib) || sib.querySelector("input, select, textarea")) return "";
+            const text = ownText(sib);
+            if (text) return text;
+            sib = sib.previousElementSibling;
+          }
+          node = node.parentElement;
+        }
+        return "";
+      }
+      function extractLabel(el) {
+        const wrap = el.closest && el.closest("label");
+        if (wrap) { const t = ownText(wrap); if (t) return { text: t, source: "wrapping-label" }; }
+        if (el.id) {
+          const bound = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+          if (bound) { const t = ownText(bound); if (t) return { text: t, source: "for-label" }; }
+        }
+        return { text: precedingText(el), source: "preceding-text" };
+      }
+
+      function collectFields() {
+        return deepQuery("input, select, textarea").filter((el) => {
+          if (isSubmitControl(el)) return false;
+          if (el.tagName === "INPUT" && SKIPPED_INPUT_TYPES.has(el.type)) return false;
+          if (el.disabled) return false;
+          return controlIsReachable(el);
+        });
+      }
+
+      function buildGroups(elements) {
+        const groups = [];
+        const radioGroups = new Map();
+        elements.forEach((el) => {
+          const tag = el.tagName.toLowerCase();
+          const type = tag === "input" ? el.type : tag;
+
+          const wrapper = type === "radio" && !el.name && el.closest
+            ? el.closest('[role="radiogroup"], fieldset')
+            : null;
+
+          if (type === "radio" && (el.name || wrapper)) {
+            const key = el.name ? `radio:${el.name}` : wrapper;
+            if (!radioGroups.has(key)) {
+              const group = {
+                kind: "radio", key, name: el.name || "",
+                container: wrapper || null, elements: [], options: []
+              };
+              radioGroups.set(key, group);
+              groups.push(group);
+            }
+            const group = radioGroups.get(key);
+            group.elements.push(el);
+            group.options.push({ value: el.value, label: extractLabel(el).text || el.value });
+            return;
+          }
+          const kind = type === "select" ? "select" : type === "radio" ? "radio-lone" : type;
+          groups.push({ kind, elements: [el], options: [] });
+        });
+        return groups;
+      }
+
+      function groupLabel(group) {
+        if (group.kind !== "radio") return extractLabel(group.elements[0]);
+        const first = group.elements[0];
+        const fieldset = first.closest && first.closest("fieldset");
+        if (fieldset) {
+          const legend = ownText(fieldset.querySelector("legend"));
+          if (legend) return { text: legend, source: "legend" };
+        }
+        const grouped = group.container || (first.closest && first.closest('[role="radiogroup"]'));
+        if (grouped) {
+          const aria = cleanText(grouped.getAttribute("aria-label"));
+          if (aria) return { text: aria, source: "radiogroup-aria-label" };
+          const labelledBy = grouped.getAttribute("aria-labelledby");
+          if (labelledBy) {
+            const text = labelledBy.split(/\s+/)
+              .map((id) => ownText(document.getElementById(id)))
+              .filter(Boolean).join(" ");
+            if (text) return { text, source: "radiogroup-aria-labelledby" };
+          }
+          const above = precedingText(grouped);
+          if (above) return { text: above, source: "preceding-text" };
+        }
+        const preceding = precedingText(first.parentElement || first);
+        if (preceding) return { text: preceding, source: "preceding-text" };
+        return {
+          text: cleanText(String(group.name || "").replace(/[_\-.]+/g, " ")),
+          source: "name-attr"
+        };
+      }
+
+      // ---- the run ----------------------------------------------------------
+      document.getElementById("run").addEventListener("click", () => {
+        const fields = collectFields();
+        const groups = buildGroups(fields);
+        const seen = groups.map((g) => ({
+          kind: g.kind,
+          label: groupLabel(g).text,
+          source: groupLabel(g).source,
+          options: g.options.map((o) => o.label),
+          inputs: g.elements.length
+        }));
+
+        const radios = seen.filter((g) => g.kind === "radio");
+        const lone = seen.filter((g) => g.kind === "radio-lone");
+        const byLabel = (frag) => radios.find((g) => g.label.toLowerCase().includes(frag));
+
+        const checks = [
+          ["all 8 radio inputs scanned", fields.length === 8],
+          ["four groups, no lone radios", radios.length === 4 && lone.length === 0],
+          ["named + visible keeps its question",
+            !!byLabel("right to work") && byLabel("right to work").inputs === 2],
+          ["hidden input still scanned",
+            !!byLabel("sponsorship") && byLabel("sponsorship").inputs === 2],
+          ["unnamed radiogroup grouped",
+            !!byLabel("previously been employed") && byLabel("previously been employed").inputs === 2],
+          ["unnamed fieldset uses its legend",
+            !!byLabel("willing to relocate") && byLabel("willing to relocate").source === "legend"],
+          ["every group offers Yes and No",
+            radios.every((g) => g.options.length === 2 &&
+              g.options.join("/").toLowerCase() === "yes/no")],
+          ["no group is labelled with a button word",
+            radios.every((g) => !/^(yes|no)$/i.test(g.label))]
+        ];
+
+        const result = {
+          scanned: fields.length,
+          groups: seen,
+          checks: checks.map(([n, ok]) => `${ok ? "ok  " : "FAIL"}  ${n}`),
+          failing: checks.filter(([, ok]) => !ok).length
+        };
+        document.getElementById("out").textContent = JSON.stringify(result, null, 2);
+        window.__result = result;
+      });
+    </script>
+  </body>
+</html>

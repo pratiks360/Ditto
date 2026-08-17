@@ -1113,7 +1113,7 @@ async function doImport(file) {
     return toast("That file isn't valid JSON.");
   }
   if (!incoming || typeof incoming !== "object" || !("schemaVersion" in incoming)) {
-    return toast("Not a Job Application Learner export.");
+    return toast("Not a Ditto export.");
   }
 
   const replace = confirm(
