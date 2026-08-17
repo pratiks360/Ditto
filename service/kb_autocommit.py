@@ -53,8 +53,13 @@ def is_repo(kb: Path) -> bool:
 
 
 def dirty(kb: Path) -> list[str]:
-    """Paths git considers changed. Empty means there is nothing to commit."""
-    out = git("status", "--porcelain", cwd=kb)
+    """Paths git considers changed. Empty means there is nothing to commit.
+
+    `--untracked-files=all` matters: by default git collapses a wholly untracked
+    directory into a single entry, so the first commit of an existing knowledge
+    base reports `1 answer` for thirty of them.
+    """
+    out = git("status", "--porcelain", "--untracked-files=all", cwd=kb)
     return [line for line in out.splitlines() if line.strip()]
 
 
