@@ -20,6 +20,8 @@
 - [Features](#-features)
 - [Screenshots](#-screenshots)
 - [Quick Start](#-quick-start)
+- [Keeping the Knowledge Base in Git](#-keeping-the-knowledge-base-in-git)
+- [Deploy on a VM](#-deploy-on-a-vm)
 - [How It Works](#-how-it-works)
 - [Why Pointers, Not Values](#-why-pointers-not-values)
 - [Settings Reference](#️-settings-reference)
@@ -108,6 +110,108 @@ Open any job application and press **`Ctrl+Shift+F`**.
 
 ---
 
+## 🗂️ Keeping the Knowledge Base in Git
+
+`kb/` ships empty and stays untracked here — it holds your name, email, phone, employment history and resume, and this repository is public. Its history is genuinely worth keeping though: it is how you see what an answer used to say and get it back. So give it a repository of its own, a **private** one, nested inside `kb/`.
+
+```bash
+python service/kb_autocommit.py --init --remote https://github.com/you/your-kb.git
+```
+
+```bash
+python service/kb_autocommit.py
+```
+
+> ⚠️ **That repository must be private.** The script warns you on `--init`, but nothing enforces it.
+
+Empty commits are never made, the derived `.index/` is ignored, and the subject line says what moved — `2 answers, 1 profile` rather than `Update knowledge base` — so scrolling back for the day an answer changed actually works.
+
+To run it unattended, on a timer rather than per-write (one commit per filled field would be unreadable):
+
+```bash
+python service/kb_autocommit.py --watch 86400
+```
+
+Under Podman it runs as the `kb-sync` container in `compose.yaml`, which does exactly that once a day. It needs `GIT_TOKEN` — a personal access token with `repo` scope — because a container cannot reach Windows Credential Manager. Without one it still commits locally and skips the push.
+
+> 💡 **Two machines?** Different records rebase cleanly. The same record edited in both places between syncs stops with a conflict for you to resolve — running the sync in one place at a time avoids it entirely.
+
+---
+
+## ☁️ Deploy on a VM
+
+The image is published to **`ghcr.io/pratiks360/ditto-service`**, built for `amd64` and `arm64` — the second matters because Oracle Cloud's free tier is Ampere, and an amd64-only image fails there with an exec format error that reads like a corrupt image rather than a wrong architecture.
+
+> 🔒 **Open no ports.** This service speaks plain HTTP and answers questions about you. Leave the cloud firewall closed and reach it through an SSH tunnel — the extension keeps pointing at `127.0.0.1:8765` and needs no change.
+
+### 1 · Install
+
+```bash
+sudo dnf install -y podman git
+```
+
+### 2 · Clone your knowledge base
+
+```bash
+git clone https://github.com/you/your-kb.git ~/ditto/kb
+```
+
+### 3 · Write `~/ditto/.env`
+
+Linux paths here, unlike the Windows ones on your laptop:
+
+```bash
+OPENROUTER_API_KEY=sk-or-v1-your-key-here
+JOBKB_MAX_PRICE=0
+JOBKB_ROOT=/data
+JOBKB_HOST=0.0.0.0
+JOBKB_PORT=8765
+JOBKB_TOKEN=a-long-random-string
+GIT_TOKEN=a-pat-with-repo-scope
+JOBKB_RESUME=/resume/resume.txt
+JOBKB_RESUME_FILE=/resume/resume.pdf
+```
+
+```bash
+chmod 600 ~/ditto/.env
+```
+
+> ⚠️ `JOBKB_HOST=0.0.0.0` is required *inside* a container — `127.0.0.1` there would only be reachable from within the container itself. The published port below is what actually keeps it off the network.
+
+### 4 · Start the service and the daily sync
+
+```bash
+podman run -d --name jobkb --env-file ~/ditto/.env -p 127.0.0.1:8765:8765 -v ~/ditto/kb:/data:Z -v ~/ditto/kb/resume:/resume:ro --restart unless-stopped ghcr.io/pratiks360/ditto-service:latest
+```
+
+```bash
+podman run -d --name jobkb-sync --env-file ~/ditto/.env -v ~/ditto/kb:/data:Z --restart unless-stopped ghcr.io/pratiks360/ditto-service:latest python kb_autocommit.py --kb /data --watch 86400
+```
+
+### 5 · Check it
+
+```bash
+curl -s http://127.0.0.1:8765/health
+```
+
+### 6 · Survive reboots
+
+`--restart unless-stopped` only holds while the podman socket is alive, which is not the same as surviving a reboot:
+
+```bash
+podman generate systemd --new --files --name jobkb && mkdir -p ~/.config/systemd/user && mv container-jobkb.service ~/.config/systemd/user/ && systemctl --user enable --now container-jobkb && sudo loginctl enable-linger $USER
+```
+
+### 7 · Reach it from your laptop
+
+```bash
+ssh -N -L 8765:127.0.0.1:8765 opc@YOUR_VM_IP
+```
+
+Set the same `JOBKB_TOKEN` in the extension's **Options** page. Mismatch it and every call returns 401 while `/health` keeps reporting fine — worth knowing, because that failure looks like a broken service rather than a wrong password.
+
+---
+
 ## 🧩 How It Works
 
 ```
@@ -164,9 +268,11 @@ All settings live in `service/.env` — copy `.env.example` to start.
 | **`JOBKB_RESUME`** | Resume text (`.txt`/`.md`) — grounds drafted answers | — |
 | **`JOBKB_RESUME_FILE`** | Resume document (`.pdf`/`.docx`) — attached to upload fields | — |
 | **`JOBKB_PORT`** | Port to listen on | `8765` |
-| **`JOBKB_TOKEN`** | Shared secret the extension must also send | _unset_ |
+| **`JOBKB_TOKEN`** | Shared secret the extension must also send. Empty means no auth at all | _unset_ |
 | **`JOBKB_MODEL`** | Pin one model instead of discovering free ones | _auto_ |
 | **`JOBKB_TIMEOUT`** | Seconds per model call | `90` |
+| **`JOBKB_HOST`** | Interface to bind. `0.0.0.0` inside a container, `127.0.0.1` otherwise | `127.0.0.1` |
+| **`GIT_TOKEN`** | PAT with `repo` scope, so the sync can push your knowledge base | _unset_ |
 
 > ⚠️ **Running under Podman?** `JOBKB_RESUME` and `JOBKB_RESUME_FILE` are paths *inside* the container (`/resume/...`), while `JOBKB_RESUME_DIR` is a Windows path. A container cannot see `C:\`.
 
@@ -200,6 +306,7 @@ The service listens on `127.0.0.1:8765`.
 | **Models** | OpenRouter free tier, auto-discovered with a fallback ladder |
 | **Storage** | Open Knowledge Format — Markdown + YAML frontmatter |
 | **Packaging** | Podman / podman-compose, or a plain venv |
+| **Images** | `ghcr.io/pratiks360/ditto-service`, built for amd64 and arm64 by GitHub Actions |
 | **Tests** | 144 pytest cases, plus browser harnesses per widget |
 
 ---
@@ -208,6 +315,8 @@ The service listens on `127.0.0.1:8765`.
 
 - **Local only.** The service binds `127.0.0.1`. Your employment history is never on a network interface
 - **`kb/` ships empty.** It holds your name, email, phone, employment history and every answer you have given, so it is deliberately untracked. Keep your own copy in a **private** repo if you want its history
+- **On a VM, open no ports.** `JOBKB_TOKEN` is a bearer secret over plain HTTP — anyone who sees one request has it permanently, and there is no rotation, rate limit or lockout. Behind an SSH tunnel it is a second lock rather than the only one
+- **The published image carries code only** — no `.env`, no knowledge base, no key. Verified against the built layers rather than inferred from the Containerfile
 - **The key stays in `.env`**, which is gitignored. Only the format placeholder appears in this repository
 - **Pointers, not values.** Only field labels and option text reach the model — never your stored answers, unless a question genuinely needs drafting
 - **It never submits.** Submit controls are excluded from scanning by construction
@@ -227,6 +336,18 @@ A: That widget searches as you type over the network, and your stored wording fo
 
 **Q: Nothing filled and it says "no fillable fields on this page".**
 A: Embedded forms (Greenhouse, Lever, SmartRecruiters) live in an iframe. Ditto probes every frame and runs in the one holding the form — if you still see this, the form may have rendered after the scan, so press `Ctrl+Shift+F` again.
+
+**Q: On the VM, `podman pull` says the image was not found.**
+A: Packages published to ghcr are private by default even when the repository is public. Open the package's settings on GitHub and change its visibility, or `podman login ghcr.io` with a token that can read it.
+
+**Q: The container starts and immediately exits with an exec format error.**
+A: Wrong architecture — an amd64 image on an Ampere VM. The published image is multi-arch; if you built it yourself, build for `linux/arm64` too.
+
+**Q: The sync commits but never pushes.**
+A: No `GIT_TOKEN`, or one without `repo` scope. It says so on the line after the commit. A container cannot use Windows Credential Manager, which is why the token is needed there and not on your laptop.
+
+**Q: Every call returns 401 but `/health` looks fine.**
+A: `JOBKB_TOKEN` on the service and in the extension's Options do not match. `/health` is deliberately exempt so a liveness check does not need the secret — which is exactly why this looks like a broken service rather than a wrong password.
 
 **Q: A fill stalled and the log mentions `free-models-per-min`.**
 A: OpenRouter's free tier allows 20 requests/minute across your whole account. That is a rate, not a quota — credit raises the daily cap, not this ceiling. The service waits for the window to reset. Set `JOBKB_MAX_PRICE=1.0` to admit cheap paid fallbacks.

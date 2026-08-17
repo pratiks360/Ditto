@@ -39,3 +39,28 @@ services:
       JOBKB_RESUME: ${JOBKB_RESUME:-}
       JOBKB_RESUME_FILE: ${JOBKB_RESUME_FILE:-}
     restart: unless-stopped
+
+  # Commits the knowledge base to its own private repository, once a day, and
+  # only when something actually changed. A separate container rather than a
+  # thread inside the service: a hung push must not be able to stall a fill, and
+  # this one can be stopped or restarted on its own.
+  #
+  # Needs GIT_TOKEN — a GitHub personal access token with `repo` scope. Windows
+  # Credential Manager is not reachable from inside a container, so without it
+  # the commit still happens locally and the push is skipped.
+  #
+  # Only runs if kb/ is already a git repository. Make it one first:
+  #   python kb_autocommit.py --init --remote https://github.com/you/your-kb.git
+  kb-sync:
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: jobkb-sync
+    command: ["python", "kb_autocommit.py", "--kb", "/data", "--watch", "86400"]
+    volumes:
+      - ${JOBKB_DATA_DIR:-../kb}:/data:Z
+    environment:
+      GIT_TOKEN: ${GIT_TOKEN:-}
+    depends_on:
+      - jobkb
+    restart: unless-stopped
