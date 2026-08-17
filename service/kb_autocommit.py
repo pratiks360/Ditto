@@ -21,6 +21,7 @@ Safe to run when nothing has changed: it exits without making an empty commit.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 import time
@@ -38,14 +39,71 @@ class GitError(RuntimeError):
     pass
 
 
-def git(*args: str, cwd: Path, check: bool = True) -> str:
+def token_from_env() -> str:
+    return (os.environ.get("GIT_TOKEN") or os.environ.get("GITHUB_TOKEN") or "").strip()
+
+
+def base_config(kb: Path) -> list[str]:
+    """`-c` settings applied to every call, so nothing is written to disk.
+
+    Two things a container needs that a laptop does not:
+
+    `safe.directory` — the knowledge base is a bind mount, so its files are
+    owned by the host user while git runs as root inside. Without this git
+    refuses the repository as "dubious ownership" and every command fails.
+
+    `credential.helper` — Windows Credential Manager is not reachable from a
+    container. This helper answers from the environment instead, so the token
+    lives in the process and never reaches .git/config, where it would sit in
+    plain text inside the very repository being pushed.
+    """
+    cfg = [f"safe.directory={kb.as_posix()}"]
+    if token_from_env():
+        cfg.append(
+            "credential.helper=!f() { echo username=x-access-token; "
+            'echo "password=$GIT_TOKEN"; }; f'
+        )
+    return cfg
+
+
+def identity(kb: Path) -> list[str]:
+    """A committer, but only when the environment has not named one.
+
+    A fresh container has no git identity and commits fail outright. Supplying
+    one unconditionally would rewrite the author on a laptop that already has a
+    real name configured, so this only fills a gap.
+    """
+    have = subprocess.run(
+        ["git", "config", "user.email"], cwd=str(kb),
+        capture_output=True, text=True,
+    )
+    if have.returncode == 0 and have.stdout.strip():
+        return []
+    return ["user.name=Ditto", "user.email=ditto@localhost"]
+
+
+def git(*args: str, cwd: Path, check: bool = True, config: list[str] | None = None,
+        strip_output: bool = True) -> str:
+    cmd = ["git"]
+    for setting in (config if config is not None else base_config(cwd)):
+        cmd += ["-c", setting]
+    cmd += list(args)
+
+    env = dict(os.environ)
+    token = token_from_env()
+    if token:
+        env["GIT_TOKEN"] = token          # what the helper above reads
+        env["GIT_TERMINAL_PROMPT"] = "0"  # fail loudly rather than hang on a prompt
+
     proc = subprocess.run(
-        ["git", *args], cwd=str(cwd),
+        cmd, cwd=str(cwd), env=env,
         capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     if check and proc.returncode != 0:
-        raise GitError(f"git {' '.join(args)} failed: {proc.stderr.strip() or proc.stdout.strip()}")
-    return proc.stdout.strip()
+        detail = (proc.stderr.strip() or proc.stdout.strip()).replace(token, "***") if token \
+            else (proc.stderr.strip() or proc.stdout.strip())
+        raise GitError(f"git {' '.join(args)} failed: {detail}")
+    return proc.stdout.strip() if strip_output else proc.stdout
 
 
 def is_repo(kb: Path) -> bool:
@@ -58,8 +116,13 @@ def dirty(kb: Path) -> list[str]:
     `--untracked-files=all` matters: by default git collapses a wholly untracked
     directory into a single entry, so the first commit of an existing knowledge
     base reports `1 answer` for thirty of them.
+
+    The output must not be stripped. A modified-but-unstaged file is reported as
+    " M path", and trimming that leading space shifts every column left, so the
+    path is read one character in — which turned `answers` into `nswers`, and
+    then into `1 nswer` once the plural was trimmed.
     """
-    out = git("status", "--porcelain", "--untracked-files=all", cwd=kb)
+    out = git("status", "--porcelain", "--untracked-files=all", cwd=kb, strip_output=False)
     return [line for line in out.splitlines() if line.strip()]
 
 
@@ -72,6 +135,9 @@ def summarize(changes: list[str]) -> str:
     buckets: dict[str, int] = {}
     for line in changes:
         path = line[3:].strip().strip('"')
+        # A rename reads "old -> new". The destination is what now exists.
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1].strip().strip('"')
         top = path.split("/")[0] if "/" in path else "root"
         buckets[top] = buckets.get(top, 0) + 1
 
@@ -98,7 +164,8 @@ def commit(kb: Path, push: bool, remote: str = "origin") -> str | None:
 
     stamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M")
     subject = f"{summarize(changes)} — {stamp}"
-    git("commit", "-q", "-m", subject, cwd=kb)
+    git("commit", "-q", "-m", subject, cwd=kb,
+        config=base_config(kb) + identity(kb))
 
     if push:
         has_remote = remote in git("remote", cwd=kb).split()

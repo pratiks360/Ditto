@@ -32,8 +32,16 @@ RUN pip install --no-cache-dir -r requirements.txt \
 # Pre-download the embedding model so the first fill is not the one that waits.
 RUN python -c "from model2vec import StaticModel; StaticModel.from_pretrained('minishlab/potion-base-8M')"
 
+# git is for kb_autocommit.py, which keeps the knowledge base in its own private
+# repository. No credential is baked in — the token arrives at run time as an
+# environment variable, so this image stays safe to publish. Installed after the
+# pip and model layers so a rebuild does not re-download the embedding model.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY jobkb/ ./jobkb/
-COPY run.py import_resume.py ./
+COPY run.py import_resume.py kb_autocommit.py ./
 
 # The knowledge base is a bind mount, never image content: it is your data and
 # it must outlive every rebuild.
