@@ -1140,7 +1140,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     chrome.action.setBadgeText({ tabId: tab.id, text: "!" });
     chrome.action.setTitle({
       tabId: tab.id,
-      title: "Job Application Learner — click the icon to finish this action"
+      title: "Ditto — click the icon to finish this action"
     });
   }
 });
@@ -1873,7 +1873,7 @@ async function runAutofill(tabId) {
     // navigating). Say so on the icon rather than failing silently.
     chrome.action.setBadgeBackgroundColor({ color: "#b42318" });
     chrome.action.setBadgeText({ tabId, text: "!" });
-    chrome.action.setTitle({ tabId, title: "Job Application Learner — no form on this page" });
+    chrome.action.setTitle({ tabId, title: "Ditto — no form on this page" });
   }
 }
 

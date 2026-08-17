@@ -85,6 +85,36 @@
     return style.visibility !== "hidden" && style.display !== "none";
   }
 
+  /**
+   * Can the user actually see this control?
+   *
+   * For most fields that is the same question as "is the element visible", but
+   * a radio or checkbox is routinely drawn by CSS with the real input hidden
+   * behind the drawing. The input is still the thing that must be set, and it
+   * is invisible on purpose, so judging it by its own box throws the whole
+   * control away — the question vanishes from the scan and the panel then
+   * reports "nothing else needs you" over a required question nobody answered.
+   *
+   * So for those two types, ask what the user can see instead: the label bound
+   * to it, or the wrapper that label lives in.
+   */
+  function controlIsReachable(el) {
+    if (isVisible(el)) return true;
+    if (!/^(radio|checkbox)$/.test((el && el.type) || "")) return false;
+
+    const proxies = [];
+    if (el.id) {
+      try {
+        const bound = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+        if (bound) proxies.push(bound);
+      } catch (e) { /* exotic id that will not escape */ }
+    }
+    const wrap = el.closest &&
+      el.closest("label, [role='radio'], [role='checkbox'], [class*='radio' i], [class*='checkbox' i]");
+    if (wrap) proxies.push(wrap);
+    return proxies.some(isVisible);
+  }
+
   /** querySelectorAll that also descends into open shadow roots. */
   function deepQuery(selector, root, out) {
     const acc = out || [];
@@ -102,7 +132,7 @@
         if (isSubmitControl(el)) return false;
         if (el.tagName === "INPUT" && SKIPPED_INPUT_TYPES.has(el.type)) return false;
         if (el.disabled) return false;
-        return isVisible(el);
+        return controlIsReachable(el);
       });
   }
 
@@ -340,13 +370,24 @@
       const tag = el.tagName.toLowerCase();
       const type = tag === "input" ? el.type : tag;
 
-      if (type === "radio" && el.name) {
-        const key = `radio:${el.name}`;
+      // Radios sharing a name are one question. Radios without a name may still
+      // be one question — component libraries routinely drop the name and lean
+      // on a radiogroup or fieldset wrapper instead — so fall back to that
+      // wrapper before giving up. Without this, "Yes" and "No" become two lone
+      // controls whose only label is the word printed on them, the question
+      // itself is lost, and nothing downstream can tell what was being asked.
+      const wrapper = type === "radio" && !el.name && el.closest
+        ? el.closest('[role="radiogroup"], fieldset')
+        : null;
+
+      if (type === "radio" && (el.name || wrapper)) {
+        const key = el.name ? `radio:${el.name}` : wrapper;
         if (!radioGroups.has(key)) {
           const group = {
             kind: "radio",
             key,
-            name: el.name,
+            name: el.name || "",
+            container: wrapper || null,
             elements: [],
             options: []
           };
@@ -478,10 +519,27 @@
       const legend = ownText(fieldset.querySelector("legend"));
       if (legend) return { text: legend, source: "legend" };
     }
-    const grouped = first.closest && first.closest('[role="radiogroup"]');
+    const grouped = group.container ||
+      (first.closest && first.closest('[role="radiogroup"]'));
     if (grouped) {
       const aria = cleanText(grouped.getAttribute("aria-label"));
       if (aria) return { text: aria, source: "radiogroup-aria-label" };
+
+      const labelledBy = grouped.getAttribute("aria-labelledby");
+      if (labelledBy) {
+        const text = labelledBy
+          .split(/\s+/)
+          .map((id) => ownText(document.getElementById(id)))
+          .filter(Boolean)
+          .join(" ");
+        if (text) return { text, source: "radiogroup-aria-labelledby" };
+      }
+
+      // The question usually sits immediately above the whole group. Asking
+      // from the group outwards finds it; asking from one radio outwards can
+      // stop at that radio's own row.
+      const above = precedingText(grouped);
+      if (above) return { text: above, source: "preceding-text" };
     }
     const preceding = precedingText(first.parentElement || first);
     if (preceding) return { text: preceding, source: "preceding-text" };
@@ -1481,7 +1539,7 @@
   }
 
   async function autofill() {
-    ensureHud("Job Application Learner");
+    ensureHud("Ditto");
     const started = Date.now();
 
     const scanning = hudLine("scanning the page…", "work");
