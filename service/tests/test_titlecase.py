@@ -34,13 +34,13 @@ def test_deliberate_mixed_case_is_left_alone(written):
 def test_contact_details_are_never_recased():
     data = _normalize({"personal": {
         "firstName": "ALEX",
-        "email": "Alexs360@GMAIL.com",
+        "email": "Alex.Rivera@EXAMPLE.com",
         "phone": "+971-500000000",
         "linkedin": "https://LinkedIn.com/in/alexRivera",
     }})
     assert data["personal"]["firstName"] == "Alex"
     # An address is a literal. Re-casing one can stop it working.
-    assert data["personal"]["email"] == "Alexs360@GMAIL.com"
+    assert data["personal"]["email"] == "Alex.Rivera@EXAMPLE.com"
     assert data["personal"]["linkedin"] == "https://LinkedIn.com/in/alexRivera"
 
 

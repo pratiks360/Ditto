@@ -64,7 +64,7 @@ def test_an_edited_resume_is_picked_up(kb, env, tmp_path):
 
 
 def test_a_document_path_is_attached(kb, env, tmp_path):
-    src = tmp_path / "resume.pdf"
+    src = tmp_path / "Alex Rivera Resume.pdf"
     src.write_bytes(PDF)
     env.setattr(settings, "resume_file_path", src)
 
@@ -72,7 +72,7 @@ def test_a_document_path_is_attached(kb, env, tmp_path):
     kb.load()
     data, filename, mime = ingest.read_resume_file(kb)
     assert data == PDF
-    assert filename == "resume.pdf"
+    assert filename == "Alex Rivera Resume.pdf"
     assert mime == "application/pdf"
 
 

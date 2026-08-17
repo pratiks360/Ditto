@@ -12,9 +12,9 @@ PDF = b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n"
 
 
 def test_the_document_is_stored_beside_its_markdown(kb):
-    rec = ingest.save_resume_file(kb, PDF, "resume.pdf", "application/pdf")
+    rec = ingest.save_resume_file(kb, PDF, "Alex Rivera Resume.pdf", "application/pdf")
 
-    on_disk = kb.root / "resume" / "resume.pdf"
+    on_disk = kb.root / "resume" / "Alex Rivera Resume.pdf"
     assert on_disk.is_file()
     assert on_disk.read_bytes() == PDF, "the file must be byte-identical"
     assert rec.fields["mime"] == "application/pdf"
