@@ -1837,9 +1837,36 @@ async function serviceCall(path, body, method) {
  * fills without a confirmation step, then puts anything it could not answer
  * into a panel on the page itself.
  */
+/**
+ * How many fillable fields each frame of the tab can see, right now.
+ *
+ * The registry is filled at page load, so it goes stale the moment a form
+ * renders late or the tab navigates. The count is cheap — a DOM scan, no
+ * service call — so it is worth re-asking rather than trusting.
+ */
+async function frameFieldCounts(tabId) {
+  const all = await sessionGet(FRAMES_KEY);
+  const ids = new Set([0, ...Object.keys(all[tabId] || {}).map(Number)]);
+  return Promise.all([...ids].map(async (frameId) => {
+    try {
+      const res = await chrome.tabs.sendMessage(tabId, { type: "JAF_COUNT" }, { frameId });
+      return { frameId, count: (res && res.count) || 0 };
+    } catch (e) {
+      return { frameId, count: 0 };  // frame gone, or no content script in it
+    }
+  }));
+}
+
 async function runAutofill(tabId) {
   try {
-    await chrome.tabs.sendMessage(tabId, { type: "JAF_AUTOFILL" });
+    // Only the frame holding the form fills and draws the panel. Broadcasting
+    // to every frame — which is what sendMessage does with no frameId — makes
+    // each one report on itself, so an embedded Greenhouse or Lever form fills
+    // correctly inside its iframe while the page around it stacks a second
+    // panel on top saying "no fillable fields on this page".
+    const counts = await frameFieldCounts(tabId);
+    const best = counts.reduce((a, b) => (b.count > a.count ? b : a), { frameId: 0, count: 0 });
+    await chrome.tabs.sendMessage(tabId, { type: "JAF_AUTOFILL" }, { frameId: best.frameId });
     chrome.action.setBadgeText({ tabId, text: "" });
   } catch (e) {
     // No content script here (chrome:// page, PDF viewer, or the tab was

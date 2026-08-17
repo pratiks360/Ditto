@@ -729,6 +729,33 @@
     return options.filter(isVisible);
   }
 
+  /**
+   * Options that actually carry a label. A row rendered as a placeholder while
+   * a remote autocomplete is still fetching is an element, not a choice.
+   */
+  function labelledOptions(el) {
+    return listboxOptions(el).filter((o) => cleanText(o.textContent));
+  }
+
+  /**
+   * Waits for the listbox to show options with text in them.
+   *
+   * A location or university autocomplete debounces what you type, fetches the
+   * list over the network, and renders empty rows meanwhile. Reading once at
+   * 140ms catches exactly those: the list looks open, every option is blank,
+   * and the match then runs against nothing — which is how a real fill reported
+   * `no option matches "UAE" (offered: )` with an empty list of offers.
+   */
+  async function waitForOptions(el, budgetMs) {
+    const until = Date.now() + budgetMs;
+    let options = labelledOptions(el);
+    while (!options.length && Date.now() < until) {
+      await pause(120);
+      options = labelledOptions(el);
+    }
+    return options;
+  }
+
   function pick(el) {
     // A framework may listen on any one of these; send the sequence a real
     // pointer produces rather than guessing which.
@@ -752,22 +779,48 @@
 
     // Typing filters the list on widgets that support it; harmless on those
     // that do not, and skipped when the input refuses text.
+    let typed = false;
     if (el.tagName === "INPUT" && !el.readOnly) {
       try {
         setNativeValue(el, want);
         el.dispatchEvent(new Event("input", { bubbles: true }));
-        await pause(140);
+        typed = true;
       } catch (e) { /* the widget rejects typing; the full list is still open */ }
     }
 
-    let options = listboxOptions(el);
-    if (!options.length) {
-      await pause(200);            // some widgets fetch their options
-      options = listboxOptions(el);
+    // Generous, because the budget is only ever spent on the failure path: a
+    // list already on screen returns on the first read.
+    let options = await waitForOptions(el, typed ? 1800 : 600);
+
+    // Nothing came back for what we typed. Clearing the box asks for the whole
+    // list, which recovers the common case of a stored answer worded unlike the
+    // site's own options ("UAE" against "United Arab Emirates").
+    if (!options.length && typed) {
+      try {
+        setNativeValue(el, "");
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        options = await waitForOptions(el, 800);
+      } catch (e) { /* leave it; reported as empty below */ }
     }
+
     if (!options.length) {
+      // A widget that opened and had nothing to offer is a different problem
+      // from one that never opened, and needs a different fix. Read the state
+      // before Escape closes it -- and read it in both places, because
+      // aria-expanded sits on the input on some widgets and on the wrapper on
+      // others. Checking only the input calls an open, empty list "did not open".
+      const box = el.closest('[role="combobox"]');
+      const opened = el.getAttribute("aria-expanded") === "true" ||
+                     (box && box.getAttribute("aria-expanded") === "true") ||
+                     listboxOptions(el).length > 0;
       el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-      return { ok: false, reason: "combobox did not open" };
+      return {
+        ok: false,
+        reason: opened
+          ? `the list came back empty for "${want}" — this one searches as you ` +
+            `type, so it may want the site's own wording`
+          : "combobox did not open"
+      };
     }
 
     const target =
@@ -802,8 +855,157 @@
    * fillGroup, plus the custom-combobox path. Async because choosing an option
    * means waiting for a popup to render.
    */
+  // ------------------------------------------------------------------- phone
+
+  const PHONE_LABEL = /\b(phone|mobile|cell|telephone|contact\s*(number|no\.?))\b/i;
+
+  function isPhoneGroup(group) {
+    const el = group.elements[0];
+    if (!el || group.kind !== "text" && group.kind !== "tel") return false;
+    if (el.tagName !== "INPUT") return false;
+    if (el.type === "tel") return true;
+    // Identifiers, not prose: open the joins before testing for a word.
+    const hint = `${el.name || ""} ${el.id || ""} ${el.getAttribute("autocomplete") || ""}`
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/[_\-.]+/g, " ");
+    if (PHONE_LABEL.test(hint) || /\btel\b/i.test(hint)) return true;
+    return PHONE_LABEL.test(extractLabel(el).text || "");
+  }
+
+  /**
+   * Dial codes we can recognise when the stored number runs them straight into
+   * the digits ("+971500000000"). Deliberately a short list rather than all 200:
+   * a wrong guess splits the number in the wrong place, and a code that is not
+   * here simply leaves the country control alone, which is the safe failure.
+   * Longest match wins, so +97 never shadows +971.
+   */
+  const DIAL_CODES = {
+    "971": "United Arab Emirates", "966": "Saudi Arabia", "968": "Oman",
+    "974": "Qatar", "973": "Bahrain", "965": "Kuwait", "353": "Ireland",
+    "351": "Portugal", "352": "Luxembourg", "358": "Finland", "372": "Estonia",
+    "420": "Czechia", "421": "Slovakia", "852": "Hong Kong", "886": "Taiwan",
+    "880": "Bangladesh", "234": "Nigeria", "254": "Kenya", "27": "South Africa",
+    "91": "India", "92": "Pakistan", "94": "Sri Lanka", "60": "Malaysia",
+    "62": "Indonesia", "63": "Philippines", "65": "Singapore", "66": "Thailand",
+    "81": "Japan", "82": "South Korea", "84": "Vietnam", "86": "China",
+    "61": "Australia", "64": "New Zealand", "49": "Germany", "44": "United Kingdom",
+    "33": "France", "34": "Spain", "39": "Italy", "31": "Netherlands",
+    "32": "Belgium", "41": "Switzerland", "43": "Austria", "45": "Denmark",
+    "46": "Sweden", "47": "Norway", "48": "Poland", "30": "Greece",
+    "20": "Egypt", "90": "Turkey", "7": "Russia", "1": "United States"
+  };
+
+  /**
+   * Splits a stored number into its dial code and national digits.
+   *
+   * A number is stored the way a person writes it — "+971-500000000" — and a
+   * form that validates as you type rejects the punctuation outright, which is
+   * how a filled field ends up reading "Please provide a valid phone number"
+   * with a value sitting in it. Everything but digits goes.
+   */
+  function parsePhone(value) {
+    // A leading bracket is common ("(+91) 98765 43210") and must not hide the +.
+    const text = String(value || "").trim().replace(/^[([\s]+/, "");
+    const digits = text.replace(/\D/g, "");
+    if (!digits) return { dial: "", national: "", digits: "" };
+
+    // Only a leading + means the first digits are a country code. A bare
+    // "500000000" is a national number, not a +5 followed by 44481340.
+    if (!/^\+/.test(text)) return { dial: "", national: digits, digits };
+
+    // An explicit separator says where the code ends; trust it over the table.
+    const split = text.match(/^\+\s*(\d{1,4})\s*[-.\s)]\s*(.+)$/);
+    if (split) {
+      const rest = split[2].replace(/\D/g, "");
+      if (rest) return { dial: split[1], national: rest, digits };
+    }
+    for (let len = 3; len >= 1; len--) {
+      const code = digits.slice(0, len);
+      if (DIAL_CODES[code] && digits.length > len) {
+        return { dial: code, national: digits.slice(len), digits };
+      }
+    }
+    return { dial: "", national: digits, digits };
+  }
+
+  /**
+   * The country control that sits beside a phone input. It is a separate field
+   * with a label of its own (often none at all), so the plan never fills it —
+   * and a phone box left beside an empty country box fails validation however
+   * right the digits are.
+   */
+  function countryControlFor(el) {
+    const CANDIDATE = "select, [role='combobox'], [aria-haspopup='listbox']";
+    for (let node = el.parentElement, hops = 0; node && hops < 4;
+         node = node.parentElement, hops++) {
+      // Tested before the search, not after: a container that has swallowed
+      // another field is already too wide, and looking inside it first finds an
+      // unrelated dropdown from elsewhere on the form. A phone box with no
+      // country control of its own would then lose its country code to a
+      // selector that was never beside it.
+      const others = deepQuery("input, textarea", node).filter(
+        (i) => i !== el && !SKIPPED_INPUT_TYPES.has(i.type) &&
+               !/^(radio|checkbox)$/.test(i.type) && !isCombobox(i) && isVisible(i)
+      );
+      if (others.length) return null;
+
+      const found = deepQuery(CANDIDATE, node)
+        .filter((c) => c !== el && !c.contains(el) && isVisible(c) && !c.disabled);
+      if (found.length) return found[0];
+    }
+    return null;
+  }
+
+  /** Already carries a country? Then leave it — the user or the page chose it. */
+  function controlIsSet(control) {
+    if (control.tagName === "SELECT") return !!String(control.value || "").trim();
+    return !!cleanText(control.value || control.textContent || "");
+  }
+
+  /**
+   * Sets the country control from a dial code, trying the ways sites label it:
+   * "+971", "971", "United Arab Emirates". Failure is silent on purpose — the
+   * digits are the part that matters, and a wrong country is worse than none.
+   */
+  async function fillCountry(control, dial) {
+    const country = DIAL_CODES[dial];
+    // "+971" and the country name only. The bare code is left out because
+    // matchOption falls back to a substring test, and a bare "1" matches
+    // "United Arab Emirates (+971)" — a wrong country silently corrupts the
+    // number, which is worse than not setting one.
+    const attempts = [`+${dial}`, country].filter(Boolean);
+    for (const attempt of attempts) {
+      const out = isCombobox(control) && control.tagName !== "SELECT"
+        ? await fillCombobox(control, attempt)
+        : fillGroup({ kind: control.tagName === "SELECT" ? "select" : "text",
+                      elements: [control], options: [] }, attempt);
+      if (out && out.ok) return { ok: true, picked: out.picked || attempt };
+    }
+    return { ok: false };
+  }
+
   async function fillField(group, value) {
     const el = group.elements[0];
+
+    if (isPhoneGroup(group)) {
+      const parsed = parsePhone(value);
+      if (parsed.digits) {
+        const country = countryControlFor(el);
+        // Only split the code off when there is somewhere for it to go and that
+        // somewhere is empty. With no country control the field wants the whole
+        // number, and handing it the national part alone would silently drop
+        // the country.
+        // With no country control the field wants the whole number, and E.164
+        // is the form most validators accept.
+        let toWrite = parsed.dial ? `+${parsed.digits}` : parsed.digits;
+        if (parsed.dial && country) {
+          const ready = controlIsSet(country) || (await fillCountry(country, parsed.dial)).ok;
+          if (ready) toWrite = parsed.national;
+        }
+        return fillGroup(group, toWrite);
+      }
+    }
+
     if (group.kind !== "radio" && isCombobox(el)) {
       const out = await fillCombobox(el, value);
       // A widget that turned out to be an ordinary input after all still gets
@@ -1244,6 +1446,40 @@
     return (field.options || []).length > 0;
   }
 
+  /** Page furniture that takes text but is not a question about you. */
+  const NOT_AN_ANSWER =
+    /\b(search|filter|query|keyword|promo|coupon|voucher|discount|captcha)\b/i;
+
+  /**
+   * Kinds that hold a typed answer. `kind` is the input's own type, not a
+   * category, so this has to name them: a Website field is type="url" and a
+   * phone is type="tel", and testing for "text" alone would miss both.
+   */
+  const TEXTUAL_KINDS = new Set(["text", "url", "email", "tel", "number", "textarea"]);
+
+  /**
+   * A blank optional text field that nothing could answer.
+   *
+   * These used to be dropped in silence, which is how a form carrying LinkedIn,
+   * Facebook, X and Website came back saying "nothing else needs you" with three
+   * of the four still empty. They are not urgent — the tag says so, and they
+   * sort below everything else — but they are the fields most worth teaching,
+   * because the answer is the same on every site that ever asks again.
+   */
+  function worthOffering(field) {
+    if (field.sensitive) return false;
+    if (!TEXTUAL_KINDS.has(field.kind)) return false;
+    const label = String(field.label || "").trim();
+    if (!label) return false;
+    if (String(readValue(field._group) || "").trim()) return false;
+    // The name is an identifier, not prose: "search_query" and "searchQuery"
+    // hold no word boundary around "search" until the joins are opened up.
+    const name = String(field.name || "")
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/[_\-.]+/g, " ");
+    return !NOT_AN_ANSWER.test(label) && !NOT_AN_ANSWER.test(name);
+  }
+
   async function autofill() {
     ensureHud("Job Application Learner");
     const started = Date.now();
@@ -1328,8 +1564,18 @@
 
       if (worthAsking(field)) {
         entries.push({ field, decision: d, tone: "ask" });
+        continue;
+      }
+
+      if (worthOffering(field)) {
+        entries.push({ field, decision: d, tone: "optional" });
       }
     }
+
+    // Optional blanks sort last. They are offers, not obligations, and putting
+    // one above a required field that still needs an answer would misrepresent
+    // what is actually holding the application up.
+    entries.sort((a, b) => (a.tone === "optional" ? 1 : 0) - (b.tone === "optional" ? 1 : 0));
 
     // Where the written values actually came from. "from your knowledge base"
     // means stored text, substituted here; the model never handled it.
@@ -1349,6 +1595,8 @@
            : "nothing else needs you",
       asks ? "bad" : "ok"
     );
+    const offers = entries.filter((e) => e.tone === "optional").length;
+    if (offers) hudLine(`${offers} optional field${offers === 1 ? "" : "s"} left blank`, "info");
 
     highlightFields(entries.map((e) => ({
       index: e.field.index,
@@ -1656,6 +1904,7 @@
     .tag.value  { background: #fff4e5; color: #92400e; }
     .tag.review { background: #eef2ff; color: #3730a3; }
     .tag.ask    { background: #fee2e2; color: #991b1b; }
+    .tag.optional { background: #f1f3f5; color: #52606d; }
     textarea, input.answer, select {
       width: 100%; box-sizing: border-box; font: inherit; padding: 6px 8px;
       border: 1px solid #d5d7db; border-radius: 6px; resize: vertical;
@@ -1692,9 +1941,15 @@
     const header = document.createElement("header");
     const title = document.createElement("span");
     title.className = "grow";
-    title.textContent = entries.length
-      ? `Filled ${o.filled || 0} · ${entries.length} need you`
-      : `Filled ${o.filled || 0} field${o.filled === 1 ? "" : "s"}`;
+    // Optional blanks are counted apart from the rest. Rolling them into
+    // "N need you" would inflate the number the user reads as their to-do list.
+    const optional = entries.filter((e) => e.tone === "optional").length;
+    const needed = entries.length - optional;
+    title.textContent = [
+      `Filled ${o.filled || 0}`,
+      needed ? `${needed} need you` : "",
+      optional ? `${optional} optional` : ""
+    ].filter(Boolean).join(" · ");
     const close = document.createElement("button");
     close.textContent = "×";
     close.title = "Close";
@@ -1748,7 +2003,8 @@
   const TAG_TEXT = {
     value: "type this in",
     review: "drafted — read it",
-    ask: "needs your answer"
+    ask: "needs your answer",
+    optional: "optional"
   };
 
   function panelItem(entry) {
@@ -1775,7 +2031,9 @@
     const why = document.createElement("div");
     why.className = "why";
     why.textContent = entry.why || decision.reason ||
-      (tone === "ask" ? "Nothing stored answers this yet." : "");
+      (tone === "ask" ? "Nothing stored answers this yet." :
+       tone === "optional" ? "Blank and not required. Fill it once and it is "
+                           + "remembered for every site that asks." : "");
     if (why.textContent) item.appendChild(why);
 
     // A question with a fixed list gets that list, not a free-text box — typing
@@ -1801,7 +2059,8 @@
       if (long) input.rows = 3;
       else input.className = "answer";
       input.value = decision.value || "";
-      input.placeholder = tone === "ask" ? "Your answer — saved for next time" : "";
+      input.placeholder = tone === "ask" || tone === "optional"
+        ? "Your answer — saved for next time" : "";
     }
     item.appendChild(input);
 
@@ -1812,7 +2071,7 @@
 
     const insert = document.createElement("button");
     insert.className = "primary";
-    insert.textContent = tone === "ask" ? "Save & fill" : "Insert";
+    insert.textContent = "Save & fill";
     insert.addEventListener("click", async () => {
       const value = input.value.trim();
       if (!value) {
@@ -1837,8 +2096,12 @@
       }
 
       // Whatever the field did, the answer is worth keeping — that is how the
-      // next site gets it without asking.
-      if (tone === "ask" || tone === "review") {
+      // next site gets it without asking. The one case not worth storing is a
+      // value that came straight out of the knowledge base and was not touched:
+      // writing it back as an Answer would shadow the record it came from, and
+      // then go stale the day that record is updated.
+      const untouched = decision.pointer && !decision.generated && value === decision.value;
+      if (!untouched) {
         insert.disabled = true;
         const saved = await ask({
           type: "JAF_SERVICE_ANSWER",
@@ -1894,6 +2157,12 @@
         }
       );
       return true;
+    }
+
+    if (msg.type === "JAF_COUNT") {
+      // Cheap enough to ask every frame on every fill: no service call, no AI.
+      sendResponse({ ok: true, count: scan().length, url: location.href });
+      return undefined;
     }
 
     if (msg.type === "JAF_SCAN") {
@@ -2050,8 +2319,12 @@
    * the popup can address iframed forms (Greenhouse/Lever embeds) by frameId.
    */
   function announce() {
+    // Announced even with nothing to fill. The count here is a snapshot from
+    // page load and a form may render long after it, so what the registry is
+    // really for is knowing which frames to re-ask at fill time — and a frame
+    // that stayed quiet because it was empty at load is exactly the one whose
+    // form appeared late.
     const count = scan().length;
-    if (!count) return;
     try {
       chrome.runtime.sendMessage({
         type: "JAF_FRAME_HELLO",

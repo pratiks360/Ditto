@@ -7,8 +7,19 @@ service/.venv/
 __pycache__/
 *.py[cod]
 
-# Derived, rebuildable from the markdown at any time
-kb/.index/
+# ---------------------------------------------------------------------------
+# kb/ — your knowledge base. The folder ships; its contents never do.
+#
+# It holds your name, email, phone, employment history, resume, and every
+# answer you have ever given. This repository is public, so none of that is
+# tracked. The empty directory is kept so a fresh clone has somewhere to put a
+# knowledge base, and the service creates the rest on first run.
+#
+# Keeping the data in version control is genuinely useful — you can see what an
+# answer used to say and get it back. Do that in a SEPARATE private repository,
+# or make this one private and delete these three lines.
+kb/*
+!kb/.gitkeep
 
 # Editors / OS
 .vscode/

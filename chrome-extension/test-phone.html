@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Phone field harness</title>
+    <style>
+      body { font: 15px/1.6 system-ui, sans-serif; margin: 32px; max-width: 760px; }
+      .field { margin: 18px 0; }
+      .label { font-weight: 600; margin-bottom: 6px; }
+      .row { display: flex; gap: 8px; }
+      select, input { font: inherit; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; }
+      input { flex: 1; }
+      pre { background: #f6f6f7; padding: 10px; font-size: 12px; white-space: pre-wrap; }
+      button { font: inherit; padding: 6px 12px; }
+      .bad { color: #b42318; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <h1>Phone field harness</h1>
+    <p>
+      The SmartRecruiters shape: a country select beside a digits input. The
+      site validates as you type, so punctuation makes the field invalid, and an
+      empty country select makes it invalid however right the digits are.
+    </p>
+
+    <!-- 1. Country select + digits, the case in the screenshot. -->
+    <div class="field">
+      <div class="label">Phone number*</div>
+      <div class="row">
+        <select id="cc1">
+          <option value=""></option>
+          <option value="IN">India (+91)</option>
+          <option value="AE">United Arab Emirates (+971)</option>
+          <option value="US">United States (+1)</option>
+        </select>
+        <input id="ph1" type="tel" name="phone_number" />
+      </div>
+      <div class="bad" id="err1"></div>
+    </div>
+
+    <!-- 2. No country control: the field wants the whole number. -->
+    <div class="field">
+      <div class="label">Mobile</div>
+      <div class="row"><input id="ph2" type="tel" name="mobile" /></div>
+    </div>
+
+    <!-- 3. Country already chosen by the page. Must not be overwritten. -->
+    <div class="field">
+      <div class="label">Telephone</div>
+      <div class="row">
+        <select id="cc3">
+          <option value=""></option>
+          <option value="IN">India (+91)</option>
+          <option value="AE" selected>United Arab Emirates (+971)</option>
+        </select>
+        <input id="ph3" type="tel" name="telephone" />
+      </div>
+    </div>
+
+    <!-- 4. A US number next to the same list: must not land on UAE. -->
+    <div class="field">
+      <div class="label">Contact number</div>
+      <div class="row">
+        <select id="cc4">
+          <option value=""></option>
+          <option value="AE">United Arab Emirates (+971)</option>
+          <option value="US">United States (+1)</option>
+        </select>
+        <input id="ph4" type="tel" name="contact_no" />
+      </div>
+    </div>
+
+    <button id="run">Fill all</button>
+    <pre id="out">press the button</pre>
+
+    <script>
+      // Validation of the kind that produced "Please provide a valid phone
+      // number": punctuation is rejected, and a blank country is rejected.
+      function validate(ccId, phId, errId) {
+        const cc = ccId ? document.getElementById(ccId) : null;
+        const ph = document.getElementById(phId);
+        const bad = /[^\d]/.test(ph.value.replace(/^\+/, "")) ||
+                    (cc && !cc.value) ||
+                    (!cc && !/^\+?\d{6,}$/.test(ph.value));
+        if (errId) {
+          document.getElementById(errId).textContent =
+            bad ? "Please provide a valid phone number" : "";
+        }
+        return !bad;
+      }
+
+      // ---- lifted from content.js ------------------------------------------
+      const cleanText = (t) => String(t || "").replace(/\s+/g, " ").replace(/[*:]\s*$/, "").trim();
+      const looseEqual = (a, b) =>
+        String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+      const isVisible = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+      const extractLabel = (el) => {
+        const box = el.closest(".field");
+        const lbl = box && box.querySelector(".label");
+        return { text: lbl ? cleanText(lbl.textContent) : "" };
+      };
+
+      function deepQuery(selector, root) {
+        return Array.from((root || document).querySelectorAll(selector));
+      }
+      function setNativeValue(el, value) {
+        const proto = el instanceof HTMLSelectElement ? HTMLSelectElement.prototype
+          : el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype
+          : HTMLInputElement.prototype;
+        Object.getOwnPropertyDescriptor(proto, "value").set.call(el, value);
+      }
+      function notify(el) {
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      function matchOption(options, value) {
+        const exact = options.find((o) => looseEqual(o.label, value) || looseEqual(o.value, value));
+        if (exact) return exact;
+        const v = String(value).trim().toLowerCase();
+        return options.find((o) => String(o.label).trim().toLowerCase().includes(v)) || null;
+      }
+      function fillGroup(group, value) {
+        const el = group.elements[0];
+        if (el.tagName === "SELECT") {
+          const options = Array.from(el.options).map((o) => ({
+            value: o.value, label: cleanText(o.textContent)
+          }));
+          const opt = matchOption(options.filter((o) => o.value !== ""), value);
+          if (!opt) return { ok: false, reason: "no-matching-option" };
+          setNativeValue(el, opt.value);
+          notify(el);
+          if (String(el.value) !== String(opt.value)) return { ok: false, reason: "rejected" };
+          return { ok: true };
+        }
+        setNativeValue(el, String(value));
+        notify(el);
+        return { ok: true };
+      }
+      const isCombobox = () => false;
+
+      const PHONE_LABEL = /\b(phone|mobile|cell|telephone|contact\s*(number|no\.?))\b/i;
+
+      function isPhoneGroup(group) {
+        const el = group.elements[0];
+        if (!el || group.kind !== "text" && group.kind !== "tel") return false;
+        if (el.tagName !== "INPUT") return false;
+        if (el.type === "tel") return true;
+        const hint = `${el.name || ""} ${el.id || ""} ${el.getAttribute("autocomplete") || ""}`
+          .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+          .replace(/[_\-.]+/g, " ");
+        if (PHONE_LABEL.test(hint) || /\btel\b/i.test(hint)) return true;
+        return PHONE_LABEL.test(extractLabel(el).text || "");
+      }
+
+      const DIAL_CODES = {
+        "971": "United Arab Emirates", "91": "India", "44": "United Kingdom",
+        "1": "United States"
+      };
+
+      function parsePhone(value) {
+        const text = String(value || "").trim().replace(/^[([\s]+/, "");
+        const digits = text.replace(/\D/g, "");
+        if (!digits) return { dial: "", national: "", digits: "" };
+        if (!/^\+/.test(text)) return { dial: "", national: digits, digits };
+        const split = text.match(/^\+\s*(\d{1,4})\s*[-.\s)]\s*(.+)$/);
+        if (split) {
+          const rest = split[2].replace(/\D/g, "");
+          if (rest) return { dial: split[1], national: rest, digits };
+        }
+        for (let len = 3; len >= 1; len--) {
+          const code = digits.slice(0, len);
+          if (DIAL_CODES[code] && digits.length > len) {
+            return { dial: code, national: digits.slice(len), digits };
+          }
+        }
+        return { dial: "", national: digits, digits };
+      }
+
+      const SKIPPED_INPUT_TYPES = new Set([
+        "password", "hidden", "submit", "button", "image", "reset", "file"
+      ]);
+
+      function countryControlFor(el) {
+        const CANDIDATE = "select, [role='combobox'], [aria-haspopup='listbox']";
+        for (let node = el.parentElement, hops = 0; node && hops < 4;
+             node = node.parentElement, hops++) {
+          const others = deepQuery("input, textarea", node).filter(
+            (i) => i !== el && !SKIPPED_INPUT_TYPES.has(i.type) &&
+                   !/^(radio|checkbox)$/.test(i.type) && !isCombobox(i) && isVisible(i)
+          );
+          if (others.length) return null;
+          const found = deepQuery(CANDIDATE, node)
+            .filter((c) => c !== el && !c.contains(el) && isVisible(c) && !c.disabled);
+          if (found.length) return found[0];
+        }
+        return null;
+      }
+
+      function controlIsSet(control) {
+        if (control.tagName === "SELECT") return !!String(control.value || "").trim();
+        return !!cleanText(control.value || control.textContent || "");
+      }
+
+      async function fillCountry(control, dial) {
+        const country = DIAL_CODES[dial];
+        const attempts = [`+${dial}`, country].filter(Boolean);
+        for (const attempt of attempts) {
+          const out = fillGroup({ kind: "select", elements: [control], options: [] }, attempt);
+          if (out && out.ok) return { ok: true, picked: out.picked || attempt };
+        }
+        return { ok: false };
+      }
+
+      async function fillField(group, value) {
+        const el = group.elements[0];
+        if (isPhoneGroup(group)) {
+          const parsed = parsePhone(value);
+          if (parsed.digits) {
+            const country = countryControlFor(el);
+            let toWrite = parsed.dial ? `+${parsed.digits}` : parsed.digits;
+            if (parsed.dial && country) {
+              const ready = controlIsSet(country) || (await fillCountry(country, parsed.dial)).ok;
+              if (ready) toWrite = parsed.national;
+            }
+            return fillGroup(group, toWrite);
+          }
+        }
+        return fillGroup(group, value);
+      }
+
+      // ---- the run ----------------------------------------------------------
+      const g = (id) => ({ kind: "text", elements: [document.getElementById(id)], options: [] });
+
+      document.getElementById("run").addEventListener("click", async () => {
+        const r = {};
+
+        r.parse = {
+          dashed: parsePhone("+971-500000000"),
+          spaced: parsePhone("+971 544 481 340"),
+          runOn: parsePhone("+971500000000"),
+          national: parsePhone("500000000"),
+          messy: parsePhone("(+91) 98765-43210")
+        };
+
+        // 1. the screenshot: country empty, stored number punctuated
+        await fillField(g("ph1"), "+971-500000000");
+        r.withCountry = {
+          country: document.getElementById("cc1").value,
+          digits: document.getElementById("ph1").value,
+          valid: validate("cc1", "ph1", "err1")
+        };
+
+        // 2. no country control -> whole number, E.164
+        await fillField(g("ph2"), "+971-500000000");
+        r.noCountryControl = {
+          digits: document.getElementById("ph2").value,
+          valid: validate(null, "ph2", null)
+        };
+
+        // 3. country preset by the page -> left alone
+        await fillField(g("ph3"), "+971 544 481 340");
+        r.countryPreset = {
+          country: document.getElementById("cc3").value,
+          digits: document.getElementById("ph3").value
+        };
+
+        // 4. a US number must not land on UAE via a substring match
+        await fillField(g("ph4"), "+1-4155551234");
+        r.usNumber = {
+          country: document.getElementById("cc4").value,
+          digits: document.getElementById("ph4").value
+        };
+
+        const checks = [
+          ["country selected", r.withCountry.country === "AE"],
+          ["digits have no punctuation", /^\d+$/.test(r.withCountry.digits)],
+          ["national part only", r.withCountry.digits === "500000000"],
+          ["field validates", r.withCountry.valid === true],
+          ["no control -> E.164", r.noCountryControl.digits === "+971500000000"],
+          ["no control -> valid", r.noCountryControl.valid === true],
+          ["preset country untouched", r.countryPreset.country === "AE"],
+          ["preset -> national only", r.countryPreset.digits === "500000000"],
+          ["US lands on US", r.usNumber.country === "US"],
+          ["US national only", r.usNumber.digits === "4155551234"],
+          ["dashed splits", r.parse.dashed.dial === "971" && r.parse.dashed.national === "500000000"],
+          ["spaced splits", r.parse.spaced.dial === "971" && r.parse.spaced.national === "500000000"],
+          ["run-on splits", r.parse.runOn.dial === "971" && r.parse.runOn.national === "500000000"],
+          ["bare stays national", r.parse.national.dial === "" && r.parse.national.national === "500000000"],
+          ["messy splits", r.parse.messy.dial === "91" && r.parse.messy.national === "9876543210"]
+        ];
+        r.checks = checks.map(([n, ok]) => `${ok ? "ok  " : "FAIL"}  ${n}`);
+        r.failing = checks.filter(([, ok]) => !ok).length;
+
+        document.getElementById("out").textContent = JSON.stringify(r, null, 2);
+        window.__result = r;
+      });
+    </script>
+  </body>
+</html>

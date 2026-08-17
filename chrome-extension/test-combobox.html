@@ -51,6 +51,16 @@
       </div>
     </div>
 
+    <div class="field">
+      <div class="label" id="lbl3">City</div>
+      <div class="combo" role="combobox" aria-haspopup="listbox" aria-expanded="false"
+           aria-controls="list3" id="combo3">
+        <input id="input3" placeholder="Select..." aria-labelledby="lbl3" autocomplete="off"
+               aria-autocomplete="list" data-sr-id="location-autocomplete-search-search-input" />
+        <div class="list" id="list3" role="listbox" hidden></div>
+      </div>
+    </div>
+
     <button id="run">Fill both</button>
     <pre id="out">press the button</pre>
 
@@ -91,6 +101,53 @@
       }
       wire("combo1", "input1", "list1");
       wire("combo2", "input2", "list2");
+
+      // The SmartRecruiters location autocomplete: debounce, network fetch, and
+      // empty placeholder rows rendered while it is in flight. Reading the list
+      // once at 140ms sees only those blanks.
+      const REMOTE = { "dubai": ["Dubai, United Arab Emirates", "Dubai Marina, UAE"] };
+      (function wireRemote() {
+        const combo = document.getElementById("combo3");
+        const input = document.getElementById("input3");
+        const list = document.getElementById("list3");
+        let timer = null;
+
+        function render(rows) {
+          list.textContent = "";
+          rows.forEach((text) => {
+            const opt = document.createElement("div");
+            opt.className = "opt";
+            opt.setAttribute("role", "option");
+            opt.textContent = text;
+            opt.addEventListener("mousedown", (e) => {
+              e.stopPropagation();
+              committed.combo3 = text;
+              input.value = text;
+              list.hidden = true;
+              combo.setAttribute("aria-expanded", "false");
+              input.dispatchEvent(new Event("change", { bubbles: true }));
+            });
+            list.appendChild(opt);
+          });
+        }
+
+        function open() {
+          list.hidden = false;
+          combo.setAttribute("aria-expanded", "true");
+        }
+
+        combo.addEventListener("mousedown", open);
+        input.addEventListener("input", () => {
+          open();
+          // Three blank rows stand in for the loading skeleton.
+          render(["", "", ""]);
+          clearTimeout(timer);
+          const q = input.value.trim().toLowerCase();
+          timer = setTimeout(() => render(REMOTE[q] || []), 700);
+        });
+        input.addEventListener("blur", () => { input.value = committed.combo3; });
+      })();
+      committed.combo3 = "";
 
       // ---- lifted from content.js ------------------------------------------
       const cleanText = (t) => String(t || "").replace(/\s+/g, " ").replace(/[*:]\s*$/, "").trim();
@@ -141,6 +198,20 @@
         return options.filter(isVisible);
       }
 
+      function labelledOptions(el) {
+        return listboxOptions(el).filter((o) => cleanText(o.textContent));
+      }
+
+      async function waitForOptions(el, budgetMs) {
+        const until = Date.now() + budgetMs;
+        let options = labelledOptions(el);
+        while (!options.length && Date.now() < until) {
+          await pause(120);
+          options = labelledOptions(el);
+        }
+        return options;
+      }
+
       function pick(el) {
         ["pointerdown", "mousedown", "mouseup", "click"].forEach((type) => {
           const Ctor = type.startsWith("pointer") && window.PointerEvent ? PointerEvent : MouseEvent;
@@ -155,19 +226,38 @@
         pick(el);
         await frame();
 
+        let typed = false;
         if (el.tagName === "INPUT" && !el.readOnly) {
           try {
             setNativeValue(el, want);
             el.dispatchEvent(new Event("input", { bubbles: true }));
-            await pause(140);
+            typed = true;
           } catch (e) {}
         }
 
-        let options = listboxOptions(el);
-        if (!options.length) { await pause(200); options = listboxOptions(el); }
+        let options = await waitForOptions(el, typed ? 1800 : 600);
+
+        if (!options.length && typed) {
+          try {
+            setNativeValue(el, "");
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+            options = await waitForOptions(el, 800);
+          } catch (e) {}
+        }
+
         if (!options.length) {
+          const box = el.closest('[role="combobox"]');
+          const opened = el.getAttribute("aria-expanded") === "true" ||
+                         (box && box.getAttribute("aria-expanded") === "true") ||
+                         listboxOptions(el).length > 0;
           el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-          return { ok: false, reason: "combobox did not open" };
+          return {
+            ok: false,
+            reason: opened
+              ? `the list came back empty for "${want}" — this one searches as you ` +
+                `type, so it may want the site's own wording`
+              : "combobox did not open"
+          };
         }
 
         const target =
@@ -215,6 +305,12 @@
         results.typeable = await fillCombobox(document.getElementById("input1"), "No");
         results.readonly = await fillCombobox(document.getElementById("input2"), "United Arab Emirates");
         results.notAnOption = await fillCombobox(document.getElementById("input1"), "Maybe");
+
+        // The remote autocomplete. "Dubai" arrives only after the fetch lands,
+        // behind three blank placeholder rows -- the case that produced
+        // `no option matches "UAE" (offered: )` against the real site.
+        results.remote = await fillCombobox(document.getElementById("input3"), "Dubai");
+        results.remoteNoHits = await fillCombobox(document.getElementById("input3"), "Atlantis");
 
         await pause(100);
         results.committed = { ...committed };
